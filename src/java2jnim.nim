@@ -339,7 +339,7 @@ proc hasIgnoredClasses(m: MethodDef, clss: seq[string]): bool =
             return true;
 
 
-proc argDescr(arg: TypeName, inp = true, chckGeneric = true): string
+proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string
 
 proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false): string =
     if gArgs.len == 0:
@@ -351,13 +351,13 @@ proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false): string =
             if isClassName:
                 a.name.name
             else:
-                argDescr a.name, false, false
+                argDescr a.name, false, false, argG=a
         args.add aName & gAstr
     result = "[" & args.join(",") & "]"
 
 
 
-proc argDescr(arg: TypeName, inp = true, chckGeneric = true): string =
+proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string =
     let varArg =
         if arg.name.contains("..."): true
         else: false
@@ -368,8 +368,11 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true): string =
             else:
                 arg.name.split(".")[^1]
         else:
-            if arg.name.len < 3:
-                arg.name #some T, K, N
+            if arg.name.len < 3: #some T, K, N
+                if arg.name == "?" and argG.to.name != "":
+                    if argG.relation == "extends": argG.to.name else: argG.to.name
+                else:
+                    arg.name 
             else:
                 "j" & arg.name
     if inp:
@@ -398,8 +401,9 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true): string =
 proc classExists(jClsDefs: seq[string], name: string): bool =
     result = false
     for def in jClsDefs:
-        if def.contains("jclassDef " & name & " "):
+        if def.contains("jclassDef " & name):
             return true
+
 
 
 
@@ -428,6 +432,7 @@ macro jnimport_all*(e: untyped): untyped =
         cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T getDeclaredAnnotation(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T[] getDeclaredAnnotationsByType(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public abstract <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
+        cJavapOutput = cJavapOutput.replace("  public <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
         echo cJavapOutput
         var cdT: ClassDef
         discard parseJavap(cJavapOutput, cdT)
@@ -448,20 +453,23 @@ macro jnimport_all*(e: untyped): untyped =
                 "[" & cd.name.genericArgs[0].name.name & "]"
             else:
                 ""
-        let className = cd.name.name & genericArg
-        var clNameOf = className & "* of "
+        let className = cd.name.name & "*" & genericArg
+        var clNameOf = className & " of "
         if cd.extends.name == "":
-            if className == "java.lang.Object":
+            if className == "java.lang.Object*":
                 clNameOf &= "JVMObject"
             else:
                 clNameOf &= "Object"
         else:
-            clNameOf &= cd.extends.name.split(".")[^1]
+            clNameOf &= cd.extends.name.split(".")[^1] & genericArg2Nim cd.extends.genericArgs
         clNameOfs.add clNameOf
         echo "set jclassDef: ", cd.name.genericArgs
         echo "jclassDef " & clNameOf
         #result.add parseStmt("jclassDef " & clNameOf)
         jclsDefs.add "jclassDef " & clNameOf
+        if className == "java.lang.Object*":
+            jclsDefs.add "proc `$`*(o: Object): string ="
+            jclsDefs.add "  o.toStringRaw"
 
     #result.add quote do:
         #echo "boooooooooooooooooooo"
@@ -500,11 +508,11 @@ macro jnimport_all*(e: untyped): untyped =
                     ):
                 continue
             echo m.name, " --------------------", m.descriptor
-            echo m.retType.name & " genArgs: " & genericArg2Nim m.retType.genericArgs
-            let retTypeName = m.retType.name & (genericArg2Nim m.retType.genericArgs).replace("[?]", "[T]")
+            echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
+            let retTypeName = m.retType.name & "*" & (genericArg2Nim m.retType.genericArgs).replace("[?]", "[T]")
             echo "retTypeName: " & retTypeName
-            if not classExists(jclsDefs, m.retType.name) and retTypeName.contains ".":
-                jclsDefs.add "jclassDef " & retTypeName
+            if not classExists(jclsDefs, m.retType.name & "*") and retTypeName.contains ".":
+                jclsDefs.add "jclassDef " & retTypeName & " of Object"
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
@@ -519,6 +527,10 @@ macro jnimport_all*(e: untyped): untyped =
                 let tArg = argDescr(arg)
                 args.add "a" & $i & ": " & tArg
                 echo arg
+                if not classExists(jclsDefs, arg.name) and arg.name.contains ".":
+                    if arg.name == "java.util.function.BiFunction":
+                        echo "->-> ", arg.genericArgs
+                    jclsDefs.add "jclassDef " & arg.name & "*" & (genericArg2Nim arg.genericArgs).replace("[?]", "[T]") & " of Object"
             let retArg = argDescr(m.retType, false)
             var propPragms = newSeq[string]()
             if m.prop:
@@ -538,9 +550,9 @@ macro jnimport_all*(e: untyped): untyped =
             let mN = createMethod(m)
             implMeths.add mN
             #echo m
-        #echo "jclsDefs Expr:"
-        #echo jclsDefs.join("\n")
-        result.add parseStmt( jclsDefs.join("\n") )
-        result.add parseStmt( impls.join("\n") )
+    echo "jclsDefs Expr:"
+    echo jclsDefs.join("\n")
+    result.add parseStmt( jclsDefs.join("\n").replace("K,V,V", "K,V,V1") )
+    result.add parseStmt( impls.join("\n").replace("K,V,V", "K,V,V1"))
     echo "REPR:"
     echo result.repr
