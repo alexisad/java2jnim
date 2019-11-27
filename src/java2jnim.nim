@@ -39,6 +39,10 @@ type
         access*: AccessType
         final*: bool
 
+type
+    ClsAliasPair = tuple[shortName, alias: string]
+
+
 proc parseAccessor(s: string, at: var AccessType, start: int): int =
     at = atPublic
     result = s.skip("public", start)
@@ -470,12 +474,23 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
     result.clNameOf = clNameOf
     #result.add parseStmt("jclassDef " & clNameOf)
 
+proc collectSetAliases(cd: ClassDef, clsAliases: var seq[ClsAliasPair]) =
+    let shortName = cd.name.name.split(".")[^1]
+    var prfx = " of "
+    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
+    prfx = " : "
+    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
+    prfx = "["
+    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
+    echo "shortName: ", clsAliases
+
 
 macro jnimport_all*(e: untyped): untyped =
     echo "e:"
     echo e.treeRepr
     echo e.kind
     var cds = newSeq[ClassDef]()
+    var clsAliases = newSeq[ClsAliasPair]()
     var eList = newStmtList()  
     if e.kind != nnkStmtList:
         eList.add e
@@ -501,6 +516,8 @@ macro jnimport_all*(e: untyped): untyped =
         var cdT: ClassDef
         cdT.asName = nodeToAsName(eN)
         discard parseJavap(cJavapOutput, cdT)
+        if cdT.asName != "":
+            collectSetAliases(cdT, clsAliases)
         echo "cdT: ", cdT
         cds.add cdT
 
@@ -609,7 +626,14 @@ macro jnimport_all*(e: untyped): untyped =
             #echo m
     echo "jclsDefs Expr:"
     echo jclsDefs.join("\n")
-    result.add parseStmt( jclsDefs.join("\n").replace("K,V,V", "K,V,V1") )
-    result.add parseStmt( impls.join("\n").replace("K,V,V", "K,V,V1"))
+    var clsDefs = jclsDefs.join("\n")
+            #.replace("K,V,V", "K,V,V1")
+    var clsImpls = impls.join("\n")
+            #.replace("K,V,V", "K,V,V1")
+    for als in clsAliases:
+        clsDefs = clsDefs.replace(als.shortName, als.alias)
+        clsImpls = clsImpls.replace(als.shortName, als.alias)
+    result.add parseStmt(clsDefs)
+    result.add parseStmt(clsImpls)
     echo "REPR:"
     echo result.repr

@@ -7,15 +7,16 @@ import sequtils except toSeq
 
 jnimport_all:
     java.lang.Object
-    #java.lang.Iterable
-    #java.util.AbstractCollection
-    #java.util.AbstractList
-    #java.util.ArrayList
-    #java.util.Iterator
-    #java.util.AbstractMap
+    java.lang.Iterable
+    java.util.AbstractCollection
+    java.util.AbstractList
+    java.util.ArrayList
+    java.util.Iterator
+    java.util.AbstractMap
     #java.util.Comparator
+    java.util.Map
     java.util.Map$Entry as MapEntry
-    #java.util.HashMap
+    java.util.HashMap
     #java.util.Collection
     #java.util.List
 
