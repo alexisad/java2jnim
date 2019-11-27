@@ -7,15 +7,26 @@ import sequtils except toSeq
 
 jnimport_all:
     java.lang.Object
-    java.lang.Iterable
-    java.util.AbstractCollection
-    java.util.AbstractList
-    java.util.ArrayList
-    java.util.Iterator
-    java.util.AbstractMap
-    java.util.HashMap
+    #java.lang.Iterable
+    #java.util.AbstractCollection
+    #java.util.AbstractList
+    #java.util.ArrayList
+    #java.util.Iterator
+    #java.util.AbstractMap
+    #java.util.Comparator
+    java.util.Map$Entry as MapEntry
+    #java.util.HashMap
     #java.util.Collection
     #java.util.List
+
+when false:
+    jclassDef java.util.Map$Entry*[K,V] as MapEntry of Object
+    jclassDef java.util.Comparator[T] * of Object
+    jclassImpl java.util.Map$Entry*[K,V] as MapEntry of Object:
+        proc getKey*: K
+        proc getValue*: V
+        proc setValue*(v: V): V
+        proc comparingByKey*(): Comparator[MapEntry[K,V]]
 
 # Initialize JVM
 initJNI(JNIVersion.v1_8)

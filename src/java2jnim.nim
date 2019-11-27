@@ -33,6 +33,7 @@ type
     ClassDef* = object
         methods*: seq[MethodDef]
         name*: TypeName
+        asName*: string
         extends*: TypeName
         implements*: seq[TypeName]
         access*: AccessType
@@ -136,7 +137,7 @@ proc parseGenericArgs(s: string, args: var seq[GenericArgDef], start: int): int 
                 result += pos
                 break
 
-proc parseTypeName(s: string, tn: var TypeName, start: int): int =
+proc parseTypeName_old(s: string, tn: var TypeName, start: int): int =
     #echo "-tn.name"
     #echo tn.name, s
     result = s.parseWhile(tn.name, IdentChars + {'.', '$'}, start)
@@ -154,6 +155,42 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     if pos != 0:
         tn.isArray = true
         tn.countArrayDeep = 1
+
+
+proc parseTypeName(s: string, tn: var TypeName, start: int): int =
+    #echo "-tn.name"
+    #echo tn.name, s
+    var pos = s.skipWhile({'<'}, start)
+    if pos != 0:
+        while true:
+            var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
+            if pos2 != 0:
+                pos2 += s.skipWhile({'>'}, pos2 + pos + start)
+                echo "pos parseGener: ", pos, " ", pos2
+                pos += pos2
+                if s.skipWhile({' '}, pos + start) != 0:
+                    inc pos
+                    echo "break"
+                    break
+        echo "pos parseGenerX: ", pos
+    result += pos
+    result += s.parseWhile(tn.name, IdentChars + {'.', '$'}, start + result)
+    echo "tn.name: ", tn.name
+    if result != 0:
+        result += s.parseGenericArgs(tn.genericArgs, start + result)
+        #echo "tn.genericArgs: ", tn.genericArgs
+    pos = 0
+    pos = s.skip("[][]", start + result)
+    result += pos
+    if pos != 0:
+        tn.isArray = true
+        tn.countArrayDeep = 2
+    pos = s.skip("[]", start + result)
+    result += pos
+    if pos != 0:
+        tn.isArray = true
+        tn.countArrayDeep = 1
+
 
 proc parseMethodModifiers(s: string, meth: var MethodDef, start: int): int =
     var pos = s.skip("final synchronized", start)
@@ -263,7 +300,7 @@ proc parseMethods(s: string, methods: var seq[MethodDef], start: int): int =
         methods.setLen(methods.len - 1)
 
 
-proc parseJavap*(s: string, def: var ClassDef): int =
+proc parseJavap*(s: string, def: var ClassDef, isParseMeths = true): int =
     def.implements = newSeq[TypeName]()
     def.methods = newSeq[MethodDef]()
 
@@ -287,8 +324,14 @@ proc parseJavap*(s: string, def: var ClassDef): int =
     pos += s.skipWhitespace(pos)
     pos += s.skip("{", pos)
     #pos += s.skipUntil('\l', pos) + 1
-    pos += s.parseMethods(def.methods, pos)
+    if isParseMeths:
+        pos += s.parseMethods(def.methods, pos)
     #echo "pos: ", pos
+
+
+proc nodeToAsName(e: NimNode): string {.compileTime.} =
+    if e.kind == nnkInfix and $e[0] == "as":
+        result = $e[2]
 
 proc nodeToString(e: NimNode): string {.compileTime.} =
     if e.kind == nnkIdent:
@@ -299,6 +342,10 @@ proc nodeToString(e: NimNode): string {.compileTime.} =
             result &= nodeToString(s)
     elif e.kind == nnkDotExpr:
         result = nodeToString(e[0]) & "." & nodeToString(e[1])
+    elif e.kind == nnkInfix and $e[0] == "$":
+        result = nodeToString(e[1]) & "$" & nodeToString(e[2])
+    elif e.kind == nnkInfix and $e[0] == "as":
+        result = nodeToString(e[1])
     else:
         #echo treeRepr(e)
         assert(false, "Cannot stringize node")
@@ -405,6 +452,23 @@ proc classExists(jClsDefs: seq[string], name: string): bool =
             return true
 
 
+proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: string] =
+    let genericArg = genericArg2Nim(cd.name.genericArgs, true)
+    let asClsName = if cd.asName != "" and withAsCls: " as " & cd.asName else: ""
+    let className = cd.name.name & "*" & genericArg
+    var clNameOf = className & asClsName & " of "
+    if cd.extends.name == "":
+        if className == "java.lang.Object*":
+            clNameOf &= "JVMObject"
+        else:
+            clNameOf &= "Object"
+    else:
+        clNameOf &= cd.extends.name.split(".")[^1] & genericArg2Nim cd.extends.genericArgs
+    echo "set jclassDef: ", cd.name.genericArgs
+    echo "jclassDef " & clNameOf
+    result.className = className
+    result.clNameOf = clNameOf
+    #result.add parseStmt("jclassDef " & clNameOf)
 
 
 macro jnimport_all*(e: untyped): untyped =
@@ -435,7 +499,9 @@ macro jnimport_all*(e: untyped): untyped =
         cJavapOutput = cJavapOutput.replace("  public <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
         echo cJavapOutput
         var cdT: ClassDef
+        cdT.asName = nodeToAsName(eN)
         discard parseJavap(cJavapOutput, cdT)
+        echo "cdT: ", cdT
         cds.add cdT
 
     #echo "All Classes: ", cds
@@ -447,26 +513,9 @@ macro jnimport_all*(e: untyped): untyped =
     var jclsDefs = newSeq[string]()
     result = newStmtList()
     for cd in cds:
-        let genericArg = genericArg2Nim(cd.name.genericArgs, true)
-        when false:
-            if cd.name.genericArgs.len != 0:
-                "[" & cd.name.genericArgs[0].name.name & "]"
-            else:
-                ""
-        let className = cd.name.name & "*" & genericArg
-        var clNameOf = className & " of "
-        if cd.extends.name == "":
-            if className == "java.lang.Object*":
-                clNameOf &= "JVMObject"
-            else:
-                clNameOf &= "Object"
-        else:
-            clNameOf &= cd.extends.name.split(".")[^1] & genericArg2Nim cd.extends.genericArgs
-        clNameOfs.add clNameOf
-        echo "set jclassDef: ", cd.name.genericArgs
-        echo "jclassDef " & clNameOf
-        #result.add parseStmt("jclassDef " & clNameOf)
+        var (className, clNameOf) = makejclassDef(cd)
         jclsDefs.add "jclassDef " & clNameOf
+        clNameOfs.add clNameOf
         if className == "java.lang.Object*":
             jclsDefs.add "proc `$`*(o: Object): string ="
             jclsDefs.add "  o.toStringRaw"
@@ -476,9 +525,10 @@ macro jnimport_all*(e: untyped): untyped =
         #jclassDef java.lang.Object of JVMObject
         #`clName`
     echo "!!!!!!!!!!!!!!!!"
-    dumpAstGen:
-        jclassImpl java.lang.io.File.String* of Object:
-            proc getBytes*(charsetName: string): seq[jbyte]
+    while false:
+        dumpAstGen:
+            jclassImpl java.lang.io.File.String* of Object:
+                proc getBytes*(charsetName: string): seq[jbyte]
     let xxx = quote do:
         java.lang.io.File.String
     echo "xxx:"
@@ -489,7 +539,7 @@ macro jnimport_all*(e: untyped): untyped =
             continue
         impls.add "jclassImpl " & clNameOfs[i] & ":"
         let className = cd.name.name
-        var implMeths = newTree(nnkStmtList)
+        #var implMeths = newTree(nnkStmtList)
         for i,m in cd.methods:
             if hasIgnoredClasses(m, @[
                             #"java.lang.Class",
@@ -502,17 +552,24 @@ macro jnimport_all*(e: untyped): untyped =
                             "java.lang.CharSequence",
                             "java.util.Locale",
                             "java.io.PrintWriter",
-                            "java.lang.Appendable",
-                            "java.util.Comparator"
+                            "java.lang.Appendable"
+                            #"java.util.Comparator"
                         ]
                     ):
                 continue
             echo m.name, " --------------------", m.descriptor
             echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
-            let retTypeName = m.retType.name & "*" & (genericArg2Nim m.retType.genericArgs).replace("[?]", "[T]")
+            let retTypeName = m.retType.name & "*" &
+                        (genericArg2Nim m.retType.genericArgs)
+                            .replace("[?]", "[T]")
             echo "retTypeName: " & retTypeName
             if not classExists(jclsDefs, m.retType.name & "*") and retTypeName.contains ".":
-                jclsDefs.add "jclassDef " & retTypeName & " of Object"
+                let javapOutput2 = staticExec("javap -public -s " & m.retType.name)
+                echo javapOutput2
+                var cdT2: ClassDef
+                discard parseJavap(javapOutput2, cdT2, false)
+                let (className, clNameOf) = makejclassDef(cdT2)
+                jclsDefs.add "jclassDef " & clNameOf
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
@@ -548,7 +605,7 @@ macro jnimport_all*(e: untyped): untyped =
                     (if retArg != "jvoid": ": " & retArg else: "") &
                     (if m.prop: " {." & propPragms.join(", ") & ".}" else: "")
             let mN = createMethod(m)
-            implMeths.add mN
+            #implMeths.add mN
             #echo m
     echo "jclsDefs Expr:"
     echo jclsDefs.join("\n")
