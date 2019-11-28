@@ -409,12 +409,12 @@ proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false): string =
 
 
 proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string =
-    let varArg =
+    let isVarArg =
         if arg.name.contains("..."): true
         else: false
     result =
         if arg.name.contains("."):
-            if arg.name.contains("..."):
+            if isVarArg:
                 arg.name.split(".")[^4]
             else:
                 arg.name.split(".")[^1]
@@ -442,7 +442,7 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef
             result = "seq[" & result & "]"
         else:
             result = "seq[seq[" & result & "]]"
-    if varArg:
+    if isVarArg:
         result = "varargs[" & result & "]"
     result = result.replace("[?]", "[Object]")
     result = result.replace("[?,?]", "[Object,Object]")
@@ -479,8 +479,8 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
     let tNameAndGen = typeName.name & "*" &
             (genericArg2Nim typeName.genericArgs)
                 .replace("[?]", "[T]")
-    if not classExists(jclsDefs, typeName.name & "*") and tNameAndGen.contains ".":
-        let javapOutput = staticExec("javap -public -s " & typeName.name)
+    if not classExists(jclsDefs, typeName.name.replace("...", "") & "*") and tNameAndGen.contains ".":
+        let javapOutput = staticExec("javap -public -s " & typeName.name.replace("...", ""))
         echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
@@ -519,8 +519,8 @@ macro jnimport_all*(e: untyped): untyped =
         let className = nodeToString(eN)
         let javapOutput = staticExec("javap -public -s " & className)
         #echo javapOutput
-        var cJavapOutput = javapOutput.replace("...", "")
-        cJavapOutput = cJavapOutput.replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
+        #var cJavapOutput = javapOutput.replace("...", "")
+        var cJavapOutput = javapOutput.replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A[] getAnnotationsByType(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getDeclaredAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
