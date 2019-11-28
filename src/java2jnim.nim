@@ -635,10 +635,10 @@ macro jnimport_all*(e: untyped): untyped =
             var propPragms = newSeq[string]()
             if m.prop:
                 propPragms.add "prop"
-                if m.final:
-                    propPragms.add "final"
-                if m.`static`:
-                    propPragms.add "`static`"
+            if m.final:
+                propPragms.add "final"
+            if m.`static`:
+                propPragms.add "`static`"
             let argsStr =
                 if args.len != 0:
                     "(" & args.join(", ") & ")"
@@ -646,7 +646,7 @@ macro jnimport_all*(e: untyped): untyped =
                     ""
             impls.add "  proc " & prcN & "*" & argsStr &
                     (if retArg != "jvoid": ": " & retArg else: "") &
-                    (if m.prop: " {." & propPragms.join(", ") & ".}" else: "")
+                    (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
             let mN = createMethod(m)
             #implMeths.add mN
             ##echo m
@@ -662,4 +662,4 @@ macro jnimport_all*(e: untyped): untyped =
     result.add parseStmt(clsDefs)
     result.add parseStmt(clsImpls)
     #echo "REPR:"
-    #echo result.repr
+    echo result.repr

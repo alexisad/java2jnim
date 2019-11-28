@@ -2,7 +2,7 @@
 
 import jnim
 import java2jnim
-import unittest
+import unittest, math
 
 when true:
     jnimport_all:
@@ -12,12 +12,14 @@ when true:
         java.lang.Byte
         java.lang.Short
         java.lang.Integer
+        java.lang.Float
         java.lang.Boolean
 
 
 
+
 # Initialize JVM
-initJNI(JNIVersion.v1_8)
+initJNI()
 
 suite "javaapi.core":
     setup:
@@ -52,7 +54,15 @@ suite "javaapi.core":
             discard Byte.new("1000")
         check: Short.MIN_VALUE == low(int16)
         check: Short.MAX_VALUE == high(int16)
+        let jI = Integer.new(1)
+        let jII = Integer.new(1)
         check: Integer.new(1) == Integer.new(1)
+        check: jI.equals(jII)
+        check: Float.MIN_VALUE == pow(2.00, -149.00)
+        check: $Float.TYPE == "float"
+        #check: Float.new(137.89).doubleValue == 137.89
+        let xxx = Float.parseFloat("137.89")
+        #check: Float.parseFloat(String.new "137.89").equals(Float.new(137.89))
     test "java.lang - Booleans":
         check: Boolean.new(JVM_TRUE).booleanValue == JVM_TRUE.bool
         check: Boolean.new(JVM_FALSE).booleanValue == JVM_FALSE.bool
