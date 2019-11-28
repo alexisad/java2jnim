@@ -403,7 +403,7 @@ proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false): string =
                 a.name.name
             else:
                 argDescr a.name, false, false, argG=a
-        args.add aName & gAstr
+        args.add aName.split(".")[^1] & gAstr
     result = "[" & args.join(",") & "]"
 
 
