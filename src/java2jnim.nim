@@ -183,6 +183,9 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     if result != 0:
         result += s.parseGenericArgs(tn.genericArgs, start + result)
         ##echo "tn.genericArgs: ", tn.genericArgs
+    var dotsname: string
+    result += s.parseWhile(dotsname, {'.'}, start + result)
+    tn.name &= dotsname
     pos = 0
     pos = s.skip("[][]", start + result)
     result += pos
@@ -292,9 +295,9 @@ proc parseMethods(s: string, methods: var seq[MethodDef], start: int): int =
     defer: result -= start
     while true:
         methods.add(MethodDef())
-        ##echo "methods: ", methods
-        #if methods.len >= 2:
-            #echo "methods[^2]: ", methods[^2]
+        #echo "methods: ", methods
+        if methods.len >= 2:
+            echo "methods[^2]: ", methods[^2]
         var pos = s.parseMethod(methods[^1], result)
         result += pos
         if pos == 0:
@@ -481,7 +484,7 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
                 .replace("[?]", "[T]")
     if not classExists(jclsDefs, typeName.name.replace("...", "") & "*") and tNameAndGen.contains ".":
         let javapOutput = staticExec("javap -public -s " & typeName.name.replace("...", ""))
-        #echo javapOutput
+        echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
         let clDef = jclassDefFromArg(jclsDefs, cdT.extends)
@@ -518,9 +521,11 @@ macro jnimport_all*(e: untyped): untyped =
     for eN in eList:
         let className = nodeToString(eN)
         let javapOutput = staticExec("javap -public -s " & className)
-        ##echo javapOutput
+        echo javapOutput
         #var cJavapOutput = javapOutput.replace("...", "")
-        var cJavapOutput = javapOutput.replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
+        var cJavapOutput = javapOutput
+                        #.replace("...", "")
+                        .replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A[] getAnnotationsByType(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getDeclaredAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
@@ -564,12 +569,6 @@ macro jnimport_all*(e: untyped): untyped =
         #jclassDef java.lang.Object of JVMObject
         #`clName`
     #echo "!!!!!!!!!!!!!!!!"
-    while false:
-        dumpAstGen:
-            jclassImpl java.lang.io.File.String* of Object:
-                proc getBytes*(charsetName: string): seq[jbyte]
-    let xxx = quote do:
-        java.lang.io.File.String
     #echo "xxx:"
     #echo xxx.repr
     var impls = newSeq[string]()
@@ -602,18 +601,6 @@ macro jnimport_all*(e: untyped): untyped =
             let clDef = jclassDefFromArg(jclsDefs, m.retType)
             if clDef.len != 0:
                 jclsDefs.add clDef
-            when false:
-                let retTypeName = m.retType.name & "*" &
-                            (genericArg2Nim m.retType.genericArgs)
-                                .replace("[?]", "[T]")
-                #echo "retTypeName: " & retTypeName
-                if not classExists(jclsDefs, m.retType.name & "*") and retTypeName.contains ".":
-                    let javapOutput2 = staticExec("javap -public -s " & m.retType.name)
-                    #echo javapOutput2
-                    var cdT2: ClassDef
-                    discard parseJavap(javapOutput2, cdT2, false)
-                    let (className, clNameOf) = makejclassDef(cdT2)
-                    jclsDefs.add "jclassDef " & clNameOf
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
