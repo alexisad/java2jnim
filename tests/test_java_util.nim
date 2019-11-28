@@ -1,24 +1,74 @@
 # To run these tests, simply execute `nimble test`.
 
 import jnim
+import jnim/private/jni_export
 import java2jnim
 import unittest
+import strutils
 import sequtils except toSeq
 
-jnimport_all:
-    java.lang.Object
-    java.lang.Iterable
-    java.util.AbstractCollection
-    java.util.AbstractList
-    java.util.ArrayList
-    java.util.Iterator
-    java.util.AbstractMap
-    #java.util.Comparator
-    java.util.Map
-    java.util.Map$Entry as MapEntry
-    java.util.HashMap
-    #java.util.Collection
-    #java.util.List
+when true:
+    jnimport_all:
+        java.lang.Object
+        java.util.ArrayList
+        java.util.Iterator
+        java.util.HashMap
+        java.util.Map$Entry as MapEntry
+        java.lang.Integer
+        #java.util.function.BiFunction
+        #java.util.Map$Entry as MapEntry
+
+
+when false:
+    jclassDef java.lang.Object * of JVMObject
+    proc `$`*(o: Object): string =
+        o.toStringRaw
+
+    jclassDef java.util.function.BiFunction * [T, U, R] of Object
+    jclassDef java.lang.Class * [T] of Object
+    jclassDef java.lang.String * of Object
+    jclassDef java.util.function.Function * [R, V] of Object
+    jclassImpl java.lang.Object * of JVMObject:
+        proc new*()
+        proc getClass*(): Class[Object]
+        proc hashCode*(): jint
+        proc equals*(a0: Object): bool
+        proc toString*(): String
+        proc notify*()
+        proc notifyAll*()
+        proc wait*(a0: jlong)
+        proc wait*(a0: jlong; a1: jint)
+        proc wait*()
+    jclassImpl java.lang.String * of Object:
+        proc new*
+        proc new*(s: string)
+        proc new*(chars: seq[jbyte])
+        proc new*(chars: seq[jbyte], charsetName: string)
+        proc length*: jint
+        proc getBytes*: seq[jbyte]
+        proc getBytes*(charsetName: string): seq[jbyte]
+    jclassImpl java.util.function.BiFunction * [T, U, R] of Object:
+        proc apply*(a0: T; a1: U): R
+        proc andThen*[V](a0: Function[R, V]): BiFunction[T, U, V]
+
+
+
+when false:
+    jnimport_all:
+        java.lang.Object
+        java.lang.Iterable
+        java.util.AbstractCollection
+        java.util.AbstractList
+        java.util.ArrayList
+        java.util.function.BiFunction
+        java.util.Iterator
+        java.util.AbstractMap
+        #java.util.Comparator
+        java.util.Map
+        java.util.Map$Entry as MapEntry
+        java.util.HashMap
+        #java.util.Collection
+        #java.util.List
 
 when false:
     jclassDef java.util.Map$Entry*[K,V] as MapEntry of Object
@@ -28,6 +78,7 @@ when false:
         proc getValue*: V
         proc setValue*(v: V): V
         proc comparingByKey*(): Comparator[MapEntry[K,V]]
+
 
 # Initialize JVM
 initJNI(JNIVersion.v1_8)

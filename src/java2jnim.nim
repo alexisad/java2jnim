@@ -474,6 +474,25 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
     result.clNameOf = clNameOf
     #result.add parseStmt("jclassDef " & clNameOf)
 
+
+proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
+    let tNameAndGen = typeName.name & "*" &
+            (genericArg2Nim typeName.genericArgs)
+                .replace("[?]", "[T]")
+    if not classExists(jclsDefs, typeName.name & "*") and tNameAndGen.contains ".":
+        let javapOutput = staticExec("javap -public -s " & typeName.name)
+        echo javapOutput
+        var cdT: ClassDef
+        discard parseJavap(javapOutput, cdT, false)
+        let clDef = jclassDefFromArg(jclsDefs, cdT.extends)
+        if clDef.len != 0:
+            result.add clDef
+        let (className, clNameOf) = makejclassDef(cdT)
+        result.add "jclassDef " & clNameOf
+    
+
+
+
 proc collectSetAliases(cd: ClassDef, clsAliases: var seq[ClsAliasPair]) =
     let shortName = cd.name.name.split(".")[^1]
     var prfx = " of "
@@ -530,6 +549,9 @@ macro jnimport_all*(e: untyped): untyped =
     var jclsDefs = newSeq[string]()
     result = newStmtList()
     for cd in cds:
+        let clDef = jclassDefFromArg(jclsDefs, cd.extends)
+        if clDef.len != 0:
+            jclsDefs.add clDef
         var (className, clNameOf) = makejclassDef(cd)
         jclsDefs.add "jclassDef " & clNameOf
         clNameOfs.add clNameOf
@@ -558,35 +580,40 @@ macro jnimport_all*(e: untyped): untyped =
         let className = cd.name.name
         #var implMeths = newTree(nnkStmtList)
         for i,m in cd.methods:
-            if hasIgnoredClasses(m, @[
-                            #"java.lang.Class",
-                            "java.lang.reflect.Field",
-                            "java.net.FileNameMap",
-                            "java.lang.reflect.Constructor",
-                            "java.nio.charset.Charset",
-                            "java.lang.StringBuffer",
-                            "java.lang.StringBuilder",
-                            "java.lang.CharSequence",
-                            "java.util.Locale",
-                            "java.io.PrintWriter",
-                            "java.lang.Appendable"
-                            #"java.util.Comparator"
-                        ]
-                    ):
-                continue
+            when false:
+                if hasIgnoredClasses(m, @[
+                                #"java.lang.Class",
+                                "java.lang.reflect.Field",
+                                "java.net.FileNameMap",
+                                "java.lang.reflect.Constructor",
+                                "java.nio.charset.Charset",
+                                "java.lang.StringBuffer",
+                                "java.lang.StringBuilder",
+                                "java.lang.CharSequence",
+                                "java.util.Locale",
+                                "java.io.PrintWriter",
+                                "java.lang.Appendable"
+                                #"java.util.Comparator"
+                            ]
+                        ):
+                    continue
             echo m.name, " --------------------", m.descriptor
             echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
-            let retTypeName = m.retType.name & "*" &
-                        (genericArg2Nim m.retType.genericArgs)
-                            .replace("[?]", "[T]")
-            echo "retTypeName: " & retTypeName
-            if not classExists(jclsDefs, m.retType.name & "*") and retTypeName.contains ".":
-                let javapOutput2 = staticExec("javap -public -s " & m.retType.name)
-                echo javapOutput2
-                var cdT2: ClassDef
-                discard parseJavap(javapOutput2, cdT2, false)
-                let (className, clNameOf) = makejclassDef(cdT2)
-                jclsDefs.add "jclassDef " & clNameOf
+            let clDef = jclassDefFromArg(jclsDefs, m.retType)
+            if clDef.len != 0:
+                jclsDefs.add clDef
+            when false:
+                let retTypeName = m.retType.name & "*" &
+                            (genericArg2Nim m.retType.genericArgs)
+                                .replace("[?]", "[T]")
+                echo "retTypeName: " & retTypeName
+                if not classExists(jclsDefs, m.retType.name & "*") and retTypeName.contains ".":
+                    let javapOutput2 = staticExec("javap -public -s " & m.retType.name)
+                    echo javapOutput2
+                    var cdT2: ClassDef
+                    discard parseJavap(javapOutput2, cdT2, false)
+                    let (className, clNameOf) = makejclassDef(cdT2)
+                    jclsDefs.add "jclassDef " & clNameOf
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
@@ -600,11 +627,15 @@ macro jnimport_all*(e: untyped): untyped =
             for i,arg in m.argTypes:
                 let tArg = argDescr(arg)
                 args.add "a" & $i & ": " & tArg
-                echo arg
-                if not classExists(jclsDefs, arg.name) and arg.name.contains ".":
-                    if arg.name == "java.util.function.BiFunction":
-                        echo "->-> ", arg.genericArgs
-                    jclsDefs.add "jclassDef " & arg.name & "*" & (genericArg2Nim arg.genericArgs).replace("[?]", "[T]") & " of Object"
+                let clDef = jclassDefFromArg(jclsDefs, arg)
+                if clDef.len != 0:
+                    echo "arg= ", arg
+                    jclsDefs.add clDef    
+                when false:
+                    if not classExists(jclsDefs, arg.name) and arg.name.contains ".":
+                        #if arg.name == "java.util.function.BiFunction":
+                            #echo "->-> ", arg.genericArgs
+                        jclsDefs.add "jclassDef " & arg.name & "*" & (genericArg2Nim arg.genericArgs).replace("[?]", "[T]") & " of Object"
             let retArg = argDescr(m.retType, false)
             var propPragms = newSeq[string]()
             if m.prop:
