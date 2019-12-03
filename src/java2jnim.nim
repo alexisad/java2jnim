@@ -461,11 +461,15 @@ proc classExists(jClsDefs: seq[string], name: string): bool =
 
 proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: string] =
     let genericArg = genericArg2Nim(cd.name.genericArgs, true)
-    let asClsName = if cd.asName != "" and withAsCls: " as " & cd.asName else: ""
-    let className = cd.name.name & "*" & genericArg
+    let asClsName =
+        if cd.asName != "" and withAsCls:
+            " as " & cd.asName & (if genericArg == "": "*" else: "")
+        else: ""
+    let className = cd.name.name &
+            (if asClsName == "": "*" else: (if genericArg == "": "" else: "*")) & genericArg
     var clNameOf = className & asClsName & " of "
     if cd.extends.name == "":
-        if className == "java.lang.Object*":
+        if cd.name.name == "java.lang.Object":
             clNameOf &= "JVMObject"
         else:
             clNameOf &= "Object"
@@ -482,7 +486,10 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
     let tNameAndGen = typeName.name & "*" &
             (genericArg2Nim typeName.genericArgs)
                 .replace("[?]", "[T]")
-    if not classExists(jclsDefs, typeName.name.replace("...", "") & "*") and tNameAndGen.contains ".":
+    let tN = typeName.name.replace("...", "")
+    if not classExists(jclsDefs, tN & "*") and
+                not classExists(jclsDefs, tN & " as") and
+                tNameAndGen.contains ".":
         let javapOutput = staticExec("javap -public -s " & typeName.name.replace("...", ""))
         echo javapOutput
         var cdT: ClassDef
@@ -500,11 +507,14 @@ proc collectSetAliases(cd: ClassDef, clsAliases: var seq[ClsAliasPair]) =
     let shortName = cd.name.name.split(".")[^1]
     var prfx = " of "
     clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
-    prfx = " : "
-    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
+    #prfx = " : "
+    #clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
     prfx = "["
+    clsAliases.add (shortName: prfx & shortName & prfx, alias: prfx & cd.asName & prfx)
+    prfx = "["
+    clsAliases.add (shortName: prfx & shortName & "]", alias: prfx & cd.asName & "]")
+    prfx = ": "
     clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
-    #echo "shortName: ", clsAliases
 
 
 macro jnimport_all*(e: untyped): untyped =
@@ -560,7 +570,7 @@ macro jnimport_all*(e: untyped): untyped =
         var (className, clNameOf) = makejclassDef(cd)
         jclsDefs.add "jclassDef " & clNameOf
         clNameOfs.add clNameOf
-        if className == "java.lang.Object*":
+        if cd.name.name == "java.lang.Object":
             jclsDefs.add "proc `$`*(o: Object): string ="
             jclsDefs.add "  o.toStringRaw"
 
@@ -609,6 +619,8 @@ macro jnimport_all*(e: untyped): untyped =
                 prcN = "`cast`"
             of "iterator":
                 prcN = "`iterator`"
+            #of "TYPE":
+                #prcN = "`TYPE`"
             #echo "args:"
             var args = newSeq[string]()
             for i,arg in m.argTypes:
