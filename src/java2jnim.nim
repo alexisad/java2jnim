@@ -166,6 +166,9 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     ##echo tn.name, s
     var pos = s.skipWhile({'<'}, start)
     if pos != 0:
+        var genType: string
+        discard s.parseWhile(genType, IdentChars, pos + start)
+        inc pos
         while true:
             var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
             if pos2 != 0:
@@ -623,9 +626,9 @@ macro jnimport_all*(e: untyped): untyped =
                 #prcN = "`TYPE`"
             #echo "args:"
             var args = newSeq[string]()
-            for i,arg in m.argTypes:
+            for j,arg in m.argTypes:
                 let tArg = argDescr(arg)
-                args.add "a" & $i & ": " & tArg
+                args.add "a" & $j & $i & ": " & tArg
                 let clDef = jclassDefFromArg(jclsDefs, arg)
                 if clDef.len != 0:
                     #echo "arg= ", arg
