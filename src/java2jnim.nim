@@ -162,26 +162,33 @@ proc parseTypeName_old(s: string, tn: var TypeName, start: int): int =
 
 
 proc parseTypeName(s: string, tn: var TypeName, start: int): int =
-    ##echo "-tn.name"
-    ##echo tn.name, s
-    var pos = s.skipWhile({'<'}, start)
-    if pos != 0:
+    #var dummStr: string
+    #echo "-tn.name: ", tn.name, " s: ", s, " start: ", start, " skip <: ", s.parseUntil(dummStr, {'<'}, start)
+    #echo "dummStr: ", dummStr
+    var pos: int
+    #result = s.parseGenericArgs(tn.genericArgs, start)
+    when false:
         var genType: string
-        discard s.parseWhile(genType, IdentChars, pos + start)
-        inc pos
-        while true:
-            var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
-            if pos2 != 0:
-                pos2 += s.skipWhile({'>'}, pos2 + pos + start)
-                #echo "pos parseGener: ", pos, " ", pos2
-                pos += pos2
-                if s.skipWhile({' '}, pos + start) != 0:
-                    inc pos
-                    #echo "break"
-                    break
-        #echo "pos parseGenerX: ", pos
-    result += pos
+        var pos = s.skipWhile({'<'}, start)
+        if pos != 0:
+            discard s.parseWhile(genType, IdentChars, pos + start)
+            genType = "[" & genType & "]"
+            echo "genType: ", genType
+            inc pos
+            while true:
+                var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
+                if pos2 != 0:
+                    pos2 += s.skipWhile({'>'}, pos2 + pos + start)
+                    #echo "pos parseGener: ", pos, " ", pos2
+                    pos += pos2
+                    if s.skipWhile({' '}, pos + start) != 0:
+                        inc pos
+                        #echo "break"
+                        break
+            #echo "pos parseGenerX: ", pos
+        result += pos
     result += s.parseWhile(tn.name, IdentChars + {'.', '$'}, start + result)
+    #tn.name = genType & tn.name
     #echo "tn.name: ", tn.name
     if result != 0:
         result += s.parseGenericArgs(tn.genericArgs, start + result)
@@ -257,6 +264,10 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
     result += s.skip("abstract", result)
     result += s.skipWhitespace(result)
     result += s.parseMethodModifiers(meth, result)
+    result += s.parseGenericArgs(meth.genericArgs, result)
+    result += s.skipWhitespace(result)
+    if meth.genericArgs.len != 0:
+        echo "genType: ", meth.genericArgs
     result += s.parseTypeName(meth.retType, result)
     pos = s.skip("(", result)
     result += pos
@@ -271,7 +282,7 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
         result += s.skipWhitespace(result)
         result += s.parseTypeName(dummyTypeName, result)
         meth.name = dummyTypeName.name
-        meth.genericArgs = dummyTypeName.genericArgs
+        #meth.genericArgs = dummyTypeName.genericArgs
         result += s.skipWhitespace(result)
         pos = s.skip("(", result)
         result += pos
@@ -592,25 +603,9 @@ macro jnimport_all*(e: untyped): untyped =
         let className = cd.name.name
         #var implMeths = newTree(nnkStmtList)
         for i,m in cd.methods:
-            when false:
-                if hasIgnoredClasses(m, @[
-                                #"java.lang.Class",
-                                "java.lang.reflect.Field",
-                                "java.net.FileNameMap",
-                                "java.lang.reflect.Constructor",
-                                "java.nio.charset.Charset",
-                                "java.lang.StringBuffer",
-                                "java.lang.StringBuilder",
-                                "java.lang.CharSequence",
-                                "java.util.Locale",
-                                "java.io.PrintWriter",
-                                "java.lang.Appendable"
-                                #"java.util.Comparator"
-                            ]
-                        ):
-                    continue
             #echo m.name, " --------------------", m.descriptor
             #echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
+            let methGenType = genericArg2Nim m.genericArgs
             let clDef = jclassDefFromArg(jclsDefs, m.retType)
             if clDef.len != 0:
                 jclsDefs.add clDef
@@ -622,9 +617,10 @@ macro jnimport_all*(e: untyped): untyped =
                 prcN = "`cast`"
             of "iterator":
                 prcN = "`iterator`"
-            #of "TYPE":
-                #prcN = "`TYPE`"
-            #echo "args:"
+            of "distinct":
+                prcN = "`distinct`"
+            of "of":
+                prcN = "`off`"
             var args = newSeq[string]()
             for j,arg in m.argTypes:
                 let tArg = argDescr(arg)
@@ -646,7 +642,7 @@ macro jnimport_all*(e: untyped): untyped =
                     "(" & args.join(", ") & ")"
                 else:
                     ""
-            impls.add "  proc " & prcN & "*" & argsStr &
+            impls.add "  proc " & prcN & "*" & methGenType & argsStr &
                     (if retArg != "jvoid": ": " & retArg else: "") &
                     (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
             let mN = createMethod(m)

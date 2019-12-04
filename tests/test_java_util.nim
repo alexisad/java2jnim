@@ -11,17 +11,30 @@ import sequtils except toSeq
 when true:
     jnimport_all:
         java.lang.Object
+        java.lang.Long
         java.lang.String
+        java.util.stream.Stream
+        java.util.stream.Stream$Builder as StreamBuilder
+        java.util.Collection
         java.util.ArrayList
         java.util.Iterator
         java.util.HashMap
         java.util.Map$Entry as MapEntry
+        java.lang.Number
         java.lang.Integer
-        #java.util.function.BiFunction
+        java.util.function.BiFunction
         #java.util.Map$Entry as MapEntry
 
 
 
+#################################################################################################### 
+# Helpers
+
+proc toSeq*[V](c: Collection[V]): seq[V] =
+    result = newSeq[V]()
+    let it = c.`iterator`
+    while it.hasNext:
+        result.add it.next
 
 # Initialize JVM
 initJNI()
@@ -48,18 +61,15 @@ suite "java.util":
         #discard xs.removeAll(ArrayList[string].new(["world", "!"]))
         #check: xs.toSeq == @["Hello"]
     test "java.util.Map":
-        var m2 = HashMap[string, string].new()
-        let x3 = m2.put("111.00", "Hi Alex")
-        var m = HashMap[Integer, String].new()
-        let x = m.put(Integer.new(1), String.new("Hi"))
-        let x2 = m.put(Integer.new(1), String.new "B")
-        echo "m: ", m, m2
-        echo "x2: ", x2
-        when false:
-            discard m.put(3.jint, "C")
-            check: m.get(1.jint) == "A"
-            check: m.get(2.jint) == "B"
-            check: m.get(3.jint) == "C"
-            check: m.keySet.toSeq.mapIt(it.intValue) == @[1.jint, 2, 3]
-            check: m.keySet.toSeq == @[1.jint, 2, 3].mapIt(Integer.new(it))
-            check: m.values.toSeq == @["A", "B", "C"]
+        var x = HashMap[Integer, string].new()
+        discard x.put(Integer.new 1, "A")
+        var m = HashMap[Integer, string].new()
+        discard m.put(Integer.new 1, "A")
+        discard m.put(Integer.new 3, "C")
+        discard m.put(Integer.new 2, "B")
+        check: m.get(Integer.new 1) == "A"
+        check: m.get(Integer.new 2) == "B"
+        check: m.get(Integer.new 3) == "C"
+        check: m.keySet.toSeq.mapIt(it.intValue) == @[1.jint, 2, 3]
+        check: m.keySet.toSeq == @[1.jint, 2, 3].mapIt(Integer.new(it))
+        check: m.values.toSeq == @[ "A",  "B",  "C"]

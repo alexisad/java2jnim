@@ -1,8 +1,10 @@
-#nim c --app:lib --passC:-g --threads:on jfx.nim
+#nim c --app:lib --passC:-g --threads:on -d:noSignalHandler --tlsEmulation:off jfx.nim
 
 import jnim#, jnim/private/jni_export
 import java2jnim
 #import java2jnim/javafx
+
+setupForeignThreadGc()
 
 when true:
     jnimport_all:
@@ -50,9 +52,11 @@ else:
     #{.pragma: JNIIMPORT, cdecl, importc, dynlib: JVM_LIB_NAME.}
     #{.pragma: JNICALL, cdecl.}
 
+
 #checkInit() #initJNI
 
 proc Java_JFx_startJfx(vjnienv: JNIEnvPtr, vclass: pointer, stage: jobject) {.JNIEXPORT.} =
+    setupForeignThreadGc()
     let stage = jcast[Stage](stage.newJVMObject)
     stage.setTitle("JNIM First Application")
     stage.setWidth(300)
