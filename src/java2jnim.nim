@@ -493,18 +493,21 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
     #echo "jclassDef " & clNameOf
     result.className = className
     result.clNameOf = clNameOf
+    if className.strip() == "*":
+        echo "className: ", cd
     #result.add parseStmt("jclassDef " & clNameOf)
 
 
 proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
+    #[
     let tNameAndGen = typeName.name & "*" &
             (genericArg2Nim typeName.genericArgs)
-                .replace("[?]", "[T]")
+                .replace("[?]", "[T]")]#
     let tN = typeName.name.replace("...", "")
     if not classExists(jclsDefs, tN & "*") and
                 not classExists(jclsDefs, tN & " as") and
-                tNameAndGen.contains ".":
-        let javapOutput = staticExec("javap -public -s " & typeName.name.replace("...", ""))
+                tN.contains ".":
+        let javapOutput = staticExec("javap -public -s " & tN.replace("...", ""))
         echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
@@ -620,7 +623,7 @@ macro jnimport_all*(e: untyped): untyped =
             of "distinct":
                 prcN = "`distinct`"
             of "of":
-                prcN = "`off`"
+                prcN = "`of`"
             var args = newSeq[string]()
             for j,arg in m.argTypes:
                 let tArg = argDescr(arg)
