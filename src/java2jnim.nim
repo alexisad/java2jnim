@@ -624,6 +624,10 @@ macro jnimport_all*(e: untyped): untyped =
                 prcN = "`distinct`"
             of "of":
                 prcN = "`of`"
+            of "in":
+                prcN = "`in`"
+            of "out":
+                prcN = "`out`"
             var args = newSeq[string]()
             for j,arg in m.argTypes:
                 let tArg = argDescr(arg)

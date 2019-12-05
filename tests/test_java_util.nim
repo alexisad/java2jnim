@@ -1,8 +1,8 @@
 # To run these tests, simply execute `nimble test`.
-GC_disable()
+#GC_disable()
 
 import jnim
-#import jnim/private/jni_export
+import jnim/private/jni_export
 import java2jnim
 import unittest
 import strutils
@@ -20,6 +20,7 @@ when false:
         java.lang.Double
         java.lang.String
         java.util.stream.Stream
+        java.util.function.Consumer
         java.util.stream.Stream$Builder as StreamBuilder
         java.util.Collection
         java.util.Collections
@@ -29,6 +30,9 @@ when false:
         java.util.HashMap
         java.util.Map
         java.util.Map$Entry as MapEntry
+
+        java.io.PrintStream
+        java.lang.System
         
         java.util.function.BiFunction
         #java.util.Map$Entry as MapEntry
@@ -62,6 +66,10 @@ when true:
     jclassDef java.util.HashMap * [K, V] of AbstractMap[K, V]
     jclassDef java.util.Map * [K, V] of Object
     jclassDef java.util.Map $ Entry * [K, V] as MapEntry of Object
+    jclassDef java.io.OutputStream * of Object
+    jclassDef java.io.FilterOutputStream * of OutputStream
+    jclassDef java.io.PrintStream * of FilterOutputStream
+    jclassDef java.lang.System * of Object
     jclassDef java.util.function.BiFunction * [T, U, R] of Object
     jclassDef java.lang.Class * [T] of Object
     jclassDef java.util.Comparator * [T] of Object
@@ -97,6 +105,16 @@ when true:
     jclassDef java.util.ListIterator * [E] of Iterator[E]
     jclassDef java.util.Enumeration * [E] of Object
     jclassDef java.util.Deque * [E] of Queue[E]
+    jclassDef java.io.File * of Object
+    jclassDef java.lang.Appendable * of Object
+    jclassDef java.io.InputStream * of Object
+    jclassDef java.io.Console * of Object
+    jclassDef java.io.Closeable * of AutoCloseable
+    jclassDef java.nio.channels.Channel * of Closeable
+    jclassDef java.lang.SecurityManager * of Object
+    jclassDef java.util.Dictionary * [K, V] of Object
+    jclassDef java.util.Hashtable * [K, V] of Dictionary[K, V]
+    jclassDef java.util.Properties * of Hashtable[Object, Object]
     jclassImpl java.lang.Object * of JVMObject:
         proc new*()
         proc getClass*(): Class[Object] {.final.}
@@ -419,6 +437,9 @@ when true:
         proc iterate*[T](a036: T; a136: UnaryOperator[T]): Stream[T] {.`static`.}
         proc generate*[T](a037: Supplier[T]): Stream[T] {.`static`.}
         proc concat*[T](a038: Stream[T]; a138: Stream[T]): Stream[T] {.`static`.}
+    jclassImpl java.util.function.Consumer * [T] of Object:
+        proc accept*(a00: T)
+        proc andThen*(a01: Consumer[T]): Consumer[T]
     jclassImpl java.util.stream.Stream $ Builder * [T] as StreamBuilder of Consumer[T]:
         proc accept*(a00: T)
         proc add*(a01: T): StreamBuilder[T]
@@ -643,9 +664,85 @@ when true:
             `static`.}
         proc comparingByValue*[K, V](a08: Comparator[V]): Comparator[MapEntry[K, V]] {.
             `static`.}
+    jclassImpl java.io.PrintStream * of FilterOutputStream:
+        proc new*(a00: OutputStream)
+        proc new*(a01: OutputStream; a11: jboolean)
+        proc new*(a02: OutputStream; a12: jboolean; a22: string)
+        proc new*(a03: string)
+        proc new*(a04: string; a14: string)
+        proc new*(a05: File)
+        proc new*(a06: File; a16: string)
+        proc flush*()
+        proc close*()
+        proc checkError*(): bool
+        proc write*(a010: jint)
+        proc write*(a011: seq[jbyte]; a111: jint; a211: jint)
+        proc print*(a012: jboolean)
+        proc print*(a013: jchar)
+        proc print*(a014: jint)
+        proc print*(a015: jlong)
+        proc print*(a016: jfloat)
+        proc print*(a017: jdouble)
+        proc print*(a018: seq[jchar])
+        proc print*(a019: string)
+        proc print*(a020: Object)
+        proc println*()
+        proc println*(a022: jboolean)
+        proc println*(a023: jchar)
+        proc println*(a024: jint)
+        proc println*(a025: jlong)
+        proc println*(a026: jfloat)
+        proc println*(a027: jdouble)
+        proc println*(a028: seq[jchar])
+        proc println*(a029: string)
+        proc println*(a030: Object)
+        proc printf*(a031: string; a131: varargs[Object]): PrintStream
+        proc printf*(a032: Locale; a132: string; a232: varargs[Object]): PrintStream
+        proc format*(a033: string; a133: varargs[Object]): PrintStream
+        proc format*(a034: Locale; a134: string; a234: varargs[Object]): PrintStream
+        proc append*(a035: CharSequence): PrintStream
+        proc append*(a036: CharSequence; a136: jint; a236: jint): PrintStream
+        proc append*(a037: jchar): PrintStream
+        proc append*(a038: jchar): Appendable
+        proc append*(a039: CharSequence; a139: jint; a239: jint): Appendable
+        proc append*(a040: CharSequence): Appendable
+    jclassImpl java.lang.System * of Object:
+        proc `in`*(): InputStream {.prop, final, `static`.}
+        proc `out`*(): PrintStream {.prop, final, `static`.}
+        proc err*(): PrintStream {.prop, final, `static`.}
+        proc setIn*(a03: InputStream) {.`static`.}
+        proc setOut*(a04: PrintStream) {.`static`.}
+        proc setErr*(a05: PrintStream) {.`static`.}
+        proc console*(): Console {.`static`.}
+        proc inheritedChannel*(): Channel {.`static`.}
+        proc setSecurityManager*(a08: SecurityManager) {.`static`.}
+        proc getSecurityManager*(): SecurityManager {.`static`.}
+        proc currentTimeMillis*(): jlong {.`static`.}
+        proc nanoTime*(): jlong {.`static`.}
+        proc arraycopy*(a012: Object; a112: jint; a212: Object; a312: jint; a412: jint) {.
+            `static`.}
+        proc identityHashCode*(a013: Object): jint {.`static`.}
+        proc getProperties*(): Properties {.`static`.}
+        proc lineSeparator*(): String {.`static`.}
+        proc setProperties*(a016: Properties) {.`static`.}
+        proc getProperty*(a017: string): String {.`static`.}
+        proc getProperty*(a018: string; a118: string): String {.`static`.}
+        proc setProperty*(a019: string; a119: string): String {.`static`.}
+        proc clearProperty*(a020: string): String {.`static`.}
+        proc getenv*(a021: string): String {.`static`.}
+        proc getenv*(): Map[String, String] {.`static`.}
+        proc exit*(a023: jint) {.`static`.}
+        proc gc*() {.`static`.}
+        proc runFinalization*() {.`static`.}
+        proc runFinalizersOnExit*(a026: jboolean) {.`static`.}
+        proc load*(a027: string) {.`static`.}
+        proc loadLibrary*(a028: string) {.`static`.}
+        proc mapLibraryName*(a029: string): String {.`static`.}
     jclassImpl java.util.function.BiFunction * [T, U, R] of Object:
         proc apply*(a00: T; a10: U): R
         proc andThen*[V](a01: Function[R, V]): BiFunction[T, U, V]
+
+
 
 
 #################################################################################################### 
@@ -658,8 +755,19 @@ proc toSeq*[V](c: Collection[V]): seq[V] =
         result.add it.next
 
 # Initialize JVM
-initJNI()
-#initJNI(JNIVersion.v1_6)
+#initJNI()
+initJNI(JNIVersion.v1_8, @["-Djava.class.path=build"])
+
+type
+    MyObj = ref object of JVMObject
+jexport MyObj implements Consumer:
+    proc new() = super()
+    proc accept(i: MapEntry[Integer, string]) =
+        System.`out`.println "i: " & $i
+
+let cnsO = MyObj.new()
+
+
 
 suite "java.util":
     setup:
@@ -696,14 +804,26 @@ suite "java.util":
         check: m.values.toSeq == @[ "A",  "B",  "C"]
         #var map = jcast[ Map[Integer, string] ](m)
         let mSet = m.entrySet()
-        let cbV = MapEntry[Integer, string].comparingByValue()
         let stm = mSet
                 .stream()
-                .sorted(Collections.reverseOrder(MapEntry[Integer, string].comparingByValue()))
+                .sorted(Collections.reverseOrder(MapEntry[Integer, string].comparingByValue))
+                .limit(2)
+                .toArray()
+                #.forEach(System.`out`.println)
+        System.`out`.println("System.out..." & $stm.len)
+        check: jcast[ MapEntry[Integer, string] ](stm[0]).getKey().intValue == 3
+        check: jcast[ MapEntry[Integer, string] ](stm[1]).getKey().intValue == 2
+        for mItem in stm:
+            echo "mItem: ", jcast[ MapEntry[Integer, string] ](mItem).getKey
+        #let f = jcast[Consumer[string]](System.`out`.println)#
+        let cnsOInt: Consumer[MapEntry[Integer, string]] = jcast[Consumer[MapEntry[Integer, string]]](cnsO)
+        let stm2 = mSet
+                .stream()
+                .sorted(Collections.reverseOrder(MapEntry[Integer, string].comparingByValue))
+                .limit(2)
+        stm2.forEach(cnsOInt)
         let it = mSet.`iterator`
         while it.hasNext:
             let me = jcast[ MapEntry[Integer, string] ](it.next)
             echo me.getKey
-        var mapFrSet = jcast[ Map[Integer, string] ](HashMap[Integer, string].new())
 
-        #let cmpV = m.comparingByValue()
