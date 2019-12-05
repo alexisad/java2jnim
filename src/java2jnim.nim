@@ -409,18 +409,25 @@ proc hasIgnoredClasses(m: MethodDef, clss: seq[string]): bool =
 
 proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string
 
-proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false): string =
+proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false, isExtends = false): string =
     if gArgs.len == 0:
         return ""
     var args: seq[string]
     for a in gArgs:
-        let gAstr = genericArg2Nim(a.name.genericArgs)
+        let gAstr =
+            if isExtends and a.name.genericArgs.len > 0:
+                "Object" # avoid ]] at the end of generic extends
+            else:
+                genericArg2Nim(a.name.genericArgs)
         let aName =
             if isClassName:
                 a.name.name
             else:
                 argDescr a.name, false, false, argG=a
-        args.add aName.split(".")[^1] & gAstr
+        if isExtends and gAstr == "Object":
+            args.add gAstr
+        else:
+            args.add aName.split(".")[^1] & gAstr
     result = "[" & args.join(",") & "]"
 
 
@@ -488,7 +495,10 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
         else:
             clNameOf &= "Object"
     else:
-        clNameOf &= cd.extends.name.split(".")[^1] & genericArg2Nim cd.extends.genericArgs
+        var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true)
+        if genericExt.len > 1 and genericExt[^2..^1] == "]]":
+            echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
+        clNameOf &= cd.extends.name.split(".")[^1] & genericExt
     #echo "set jclassDef: ", cd.name.genericArgs
     #echo "jclassDef " & clNameOf
     result.className = className
