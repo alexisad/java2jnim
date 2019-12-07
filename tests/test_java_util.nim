@@ -1,15 +1,15 @@
 # To run these tests, simply execute `nimble test`.
 #GC_disable()
+#nim c --passC:-g -d:jnimGlue=Jnim.java --threads:on -d:noSignalHandler --tlsEmulation:off test_java_util.nim
 
 import jnim
-import jnim/private/jni_export
-import java2jnim
+import java2jnim, java2jnim/jni_export
 import unittest
 import strutils
 import sequtils except toSeq
 
     
-when false:
+when true:
     jnimport_all:
         java.lang.Object
         java.lang.Comparable
@@ -37,7 +37,7 @@ when false:
         java.util.function.BiFunction
         #java.util.Map$Entry as MapEntry
 
-when true:
+when false:
     jclassDef java.lang.Object * of JVMObject
     proc `$`*(o: Object): string =
         o.toStringRaw
@@ -760,7 +760,8 @@ initJNI(JNIVersion.v1_8, @["-Djava.class.path=build"])
 
 type
     MyObj = ref object of JVMObject
-jexport MyObj implements Consumer:
+
+jexport MyObj implements Consumer[MapEntry[Integer, string]], Integer[Stream[Consumer, string]]:
     proc new() = super()
     proc accept(i: MapEntry[Integer, string]) =
         System.`out`.println "i: " & $i
