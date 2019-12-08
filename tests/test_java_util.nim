@@ -761,7 +761,7 @@ initJNI(JNIVersion.v1_8, @["-Djava.class.path=build"])
 type
     MyObj = ref object of JVMObject
 
-jexport MyObj implements Consumer[MapEntry[Integer, string]], Integer[Stream[Consumer, string]]:
+jexport MyObj implements Consumer[MapEntry[Integer, string]], Integer[Stream[Integer], Consumer[string]]:
     proc new() = super()
     proc accept(i: MapEntry[Integer, string]) =
         System.`out`.println "i: " & $i

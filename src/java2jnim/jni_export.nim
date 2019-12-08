@@ -30,18 +30,30 @@ proc toWords(a: NimNode, res: var seq[string], addAfter = "") =
   of nnkArgList:
     var i = 0
     while i < a.len and a[i].kind in {nnkCommand, nnkIdent, nnkInfix, nnkBracketExpr}:
+      #if i == a.len-1:
+        #res.add ">"
       toWords(a[i], res)
       inc i
-  of nnkCommand, nnkBracketExpr:
-    if a.kind == nnkBracketExpr:
-      strAddAfter = "interfGenerics"
+      if i < a.len and a[i].kind in {nnkCommand, nnkIdent, nnkBracketExpr}:
+        res.add ","
+  of nnkCommand:
     for n in a:        
       toWords(n, res, strAddAfter)
-      strAddAfter = ""
+  of nnkBracketExpr:
+    #strAddAfter = "<"
+    for i,n in a:        
+      #if i == a.len-1:
+        #strAddAfter = ">"
+      toWords(n, res)
+      if i == 0:
+        res.add "<"
+      if i == a.len-1:
+        res.add ">"
+        #strAddAfter = ""
   of nnkIdent:
     res.add($a)
-    if addAfter != "":
-      res.add addAfter  
+    #if addAfter != "":
+      #res.add addAfter  
   of nnkInfix:
     a[0].expectKind(nnkIdent)
     a[1].expectKind(nnkIdent)
@@ -57,7 +69,7 @@ proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfa
   var currGeneric: GenericArgDef
   a.toWords(words)
   echo "words: ", words
-  var state: range[0 .. 7]
+  var state: range[0 .. 4]
   for w in words:
     echo "w: ", w
     case state
@@ -82,7 +94,7 @@ proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfa
       state = 4
     of 4: # Waiting interface name
       result.interfaces.add(w)
-      state = 5
+      #[state = 5
     of 5: # Waiting interfGenerics keyword
       assert(w == "interfGenerics")
       if result.interfGenerics.len == 0:
@@ -96,7 +108,7 @@ proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfa
       state = 7
     of 7: # Waiting interfGenerics name
       #currGeneric.name = TypeName(name: w)
-      state = 7
+      state = 7]#
 
   if a[^1].kind != nnkIdent:
     result.body = a[^1]
@@ -321,7 +333,7 @@ proc implementConstructor(p: NimNode, className: string): NimNode =
 
 macro jexport*(a: varargs[untyped]): untyped =
   var (className, parentClass, interfaces, interfGenerics, body, isPublic) = extractArguments(a)
-  echo "extractArguments: ", interfGenerics
+  echo "extractArguments: ", interfaces
   let classNameIdent = newIdentNode(className)
 
   let nonVirtualClassNameIdent = ident("JnimNonVirtual_" & className)
@@ -354,9 +366,25 @@ macro jexport*(a: varargs[untyped]): untyped =
       assert(not v.getNoCreate.isNil)
       `nonVirtualClassNameIdent`(obj: v.getNoCreate)
 
+  var interConv = newSeq[string]()
   var inter = newCall(bindSym"varargsToSeqStr")
-  for i in interfaces:
-    inter.add(newCall("jniFqcn", newIdentNode(i)))
+  var interExpr = newSeq[string]()
+  var comma = ""
+  for j,i in interfaces:
+    if i in ["<", ">"]:
+      interExpr.add "\"" & i & "\""
+      comma = ""
+    elif i == ",":
+      inter.add parseExpr(interExpr.join " & ")
+      interExpr = newSeq[string]()
+      comma = ""
+    else:
+      interExpr.add comma & "jniFqcn(" & i & ")"
+      comma = "\", \" & "
+      interConv.add i
+      #inter.add(newCall("jniFqcn", newIdentNode(i)))
+  if interExpr.len != 0:
+    inter.add parseExpr(interExpr.join " & ")
   echo "inter: ", inter.repr
   var nativeMethodDefs = newNimNode(nnkBracket)
 
@@ -485,7 +513,7 @@ macro jexport*(a: varargs[untyped]): untyped =
   result.add(constructors)
 
   # Generate interface converters
-  for interf in interfaces:
+  for interf in interConv:
     let converterName = newIdentNode("to" & interf)
     let interfaceName = newIdentNode(interf)
     result.add quote do:
