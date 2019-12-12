@@ -23,7 +23,28 @@ proc initMethodDescr(name, retType: string, argTypes: seq[string]): MethodDescr 
   result.retType = retType
   result.argTypes = argTypes
 
-proc toWords(a: NimNode, res: var seq[string], addAfter = "") =
+proc genGenericArgs(nI: NimNode, clsName: var TypeName) =
+  #var clsName = TypeName()
+  for i,a in nI:
+    case a.kind
+    of nnkIdent:
+      if i == 0 and clsName.genericArgs.len == 0:
+        clsName.name = $a
+      #elif i == 0 and clsName.genericArgs.len != 0:
+        #clsName.genericArgs.add GenericArgDef(name: TypeName(name: $a))
+      else:
+        clsName.genericArgs.add GenericArgDef(name: TypeName(name: $a))
+    of nnkBracketExpr:
+      var clsWithGens = TypeName()
+      clsName.genericArgs.add GenericArgDef(name: clsWithGens)
+      genGenericArgs(a, clsName)
+    else:
+      echo "Unexpected node: ", repr(a), "\n", treeRepr(a)
+      doAssert(false)
+        
+
+
+proc toWords(a: NimNode, res: var seq[TypeName]) =
   echo "toWords: ", "\n", treeRepr(a)
   var strAddAfter: string
   case a.kind
@@ -34,43 +55,52 @@ proc toWords(a: NimNode, res: var seq[string], addAfter = "") =
         #res.add ">"
       toWords(a[i], res)
       inc i
-      if i < a.len and a[i].kind in {nnkCommand, nnkIdent, nnkBracketExpr}:
-        res.add ","
+      #if i < a.len and a[i].kind in {nnkCommand, nnkIdent, nnkBracketExpr}:
+        #res.add ";"
   of nnkCommand:
     for n in a:        
-      toWords(n, res, strAddAfter)
+      toWords(n, res)
   of nnkBracketExpr:
-    #strAddAfter = "<"
+    var clsWithGens = TypeName()
+    genGenericArgs(a, clsWithGens)
+    res.add clsWithGens
+    echo "genGenericArgs: ", clsWithGens
+    #[
     for i,n in a:        
       #if i == a.len-1:
         #strAddAfter = ">"
       toWords(n, res)
       if i == 0:
+        var clsNme = TypeName(name: $n)
+        genGenericArgs(n, clsNme.genericArgs)
         res.add "<"
       if i == a.len-1:
         res.add ">"
-        #strAddAfter = ""
+      #if (a.len == 2 or (i >= 1 and i != a.len-1)) and n.kind == nnkIdent:
+        #res.add ","
+        #strAddAfter = ""]#
   of nnkIdent:
-    res.add($a)
+    res.add(TypeName(name: $a))
     #if addAfter != "":
       #res.add addAfter  
   of nnkInfix:
     a[0].expectKind(nnkIdent)
     a[1].expectKind(nnkIdent)
     assert($a[0] == "*")
-    res.add($a[1] & "*")
+    res.add(TypeName(name: $a[1] & "*"))
     toWords(a[2], res)
   else:
     echo "Unexpected node: ", repr(a), "\n", treeRepr(a)
     doAssert(false)
 
-proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfaces: seq[string], interfGenerics: seq[GenericArgDef], body: NimNode, isPublic: bool] =
-  var words: seq[string]
-  var currGeneric: GenericArgDef
+proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfaces: seq[TypeName], body: NimNode, isPublic: bool] =
+  var words: seq[TypeName]
+  #var currGeneric: GenericArgDef
   a.toWords(words)
   echo "words: ", words
   var state: range[0 .. 4]
-  for w in words:
+  for wT in words:
+    var w = wT.name
     echo "w: ", w
     case state
     of 0: # Waiting class name
@@ -93,23 +123,7 @@ proc extractArguments(a: NimNode): tuple[className, parentClass: string, interfa
       assert(w == "implements")
       state = 4
     of 4: # Waiting interface name
-      result.interfaces.add(w)
-      #[state = 5
-    of 5: # Waiting interfGenerics keyword
-      assert(w == "interfGenerics")
-      if result.interfGenerics.len == 0:
-        result.interfGenerics.add GenericArgDef()
-        currGeneric = result.interfGenerics[^1]
-      state = 6
-    of 6: # Waiting interfGenerics name
-      currGeneric.name.name = w
-      currGeneric.name.genericArgs.add GenericArgDef(name: TypeName(name: w))
-      currGeneric = currGeneric.name.genericArgs[^1]
-      state = 7
-    of 7: # Waiting interfGenerics name
-      #currGeneric.name = TypeName(name: w)
-      state = 7]#
-
+      result.interfaces.add(wT)
   if a[^1].kind != nnkIdent:
     result.body = a[^1]
 
@@ -131,9 +145,8 @@ proc importNameFromFqcn(fq: string): string =
 
 proc isConstr(m: MethodDescr): bool = m.name == "new"
 
-proc genJavaGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string) =
+proc genJavaGlue(className, parentClass: string, interfaces: seq[string], jinterfaces: string, isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string) =
   if classCursor == 0:
-
     javaGlue = "package " & JnimPackageName & ";\n"
     importCursor = javaGlue.len
     javaGlue &= """
@@ -143,7 +156,7 @@ public static native void """ & FinalizerName & """(long p);
 """
     classCursor = javaGlue.len
     javaGlue &= "}\n"
-    imports = initSet[string]()
+    imports = initHashSet[string]()
 
   echo "className: ", className, " public: ", isPublic
   echo "super: ", parentClass
@@ -157,6 +170,7 @@ public static native void """ & FinalizerName & """(long p);
 
   proc addImport(s: string) =
     if s.len != 0 and s notin imports:
+      echo "addImport: ", s
       imports.incl(s)
       newImports &= "import "
       newImports &= s
@@ -173,11 +187,13 @@ public static native void """ & FinalizerName & """(long p);
     classDef &= parentClass.noDollarFqcn()
     addImport(importNameFromFqcn(parentClass))
 
-  classDef &= " implements __NimObject"
+  classDef &= " implements __NimObject, " & jinterfaces.noDollarFqcn()
   for f in interfaces:
-    classDef &= ", "
-    classDef &= f.noDollarFqcn()
+    #classDef &= ", "
+    #classDef &= f.noDollarFqcn()
+    echo "f: ", f, " : ", importNameFromFqcn(f)
     addImport(importNameFromFqcn(f))
+  echo "newImports: ", newImports
   classDef &= " {\n"
   if staticSection.len != 0:
     classDef &= "static { " & staticSection & "}\n"
@@ -232,17 +248,18 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
-proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
+proc genDexGlue(className, parentClass: string, interfaces: seq[string], jinterfaces: string, isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
   doAssert(false, "Not implemented")
 
-macro genJexportGlue(className, parentClass: static[string], interfaces: static[seq[string]], isPublic: static[bool], methodDefs: static[seq[MethodDescr]], staticSection, emitSection: static[string]): untyped =
+macro genJexportGlue(className, parentClass: static[string], interfaces: static[seq[string]], jinterfaces: static[string], isPublic: static[bool], methodDefs: static[seq[MethodDescr]], staticSection, emitSection: static[string]): untyped =
   # echo treeRepr(a)
   when defined(jnimGenDex):
-    genDexGlue(className, parentClass, interfaces, isPublic, methodDefs, staticSection, emitSection)
+    genDexGlue(className, parentClass, interfaces, jinterfaces, isPublic, methodDefs, staticSection, emitSection)
   else:
-    genJavaGlue(className, parentClass, interfaces, isPublic, methodDefs, staticSection, emitSection)
+    genJavaGlue(className, parentClass, interfaces, jinterfaces, isPublic, methodDefs, staticSection, emitSection)
 
 proc varargsToSeqStr(args: varargs[string]): seq[string] {.compileTime.} = @args
+proc varargsToStr(args: varargs[string]): string {.compileTime.} = @args.join ""
 proc varargsToSeqMethodDef(args: varargs[MethodDescr]): seq[MethodDescr] {.compileTime.} = @args
 
 proc jniFqcn*(T: type[void]): string = "void"
@@ -332,7 +349,7 @@ proc implementConstructor(p: NimNode, className: string): NimNode =
       result.data = data
 
 macro jexport*(a: varargs[untyped]): untyped =
-  var (className, parentClass, interfaces, interfGenerics, body, isPublic) = extractArguments(a)
+  var (className, parentClass, interfaces, body, isPublic) = extractArguments(a)
   echo "extractArguments: ", interfaces
   let classNameIdent = newIdentNode(className)
 
@@ -366,26 +383,28 @@ macro jexport*(a: varargs[untyped]): untyped =
       assert(not v.getNoCreate.isNil)
       `nonVirtualClassNameIdent`(obj: v.getNoCreate)
 
-  var interConv = newSeq[string]()
+  proc toJInterfGens(genIinters: seq[GenericArgDef], inters: var NimNode, jinters: NimNode#[var seq[NimNode]]#) =
+    for i,genI in genIinters:
+      inters.add newCall("jniFqcn", newIdentNode(genI.name.name))
+      jinters.add(newCall("jniFqcn", newIdentNode(genI.name.name)))
+      toJInterfGens genI.name.genericArgs, inters, jinters
+      if i != genIinters.len-1:
+        jinters.add newLit(", ")
+    if genIinters.len != 0:
+      jinters.add newLit(">")
+
   var inter = newCall(bindSym"varargsToSeqStr")
-  var interExpr = newSeq[string]()
-  var comma = ""
-  for j,i in interfaces:
-    if i in ["<", ">"]:
-      interExpr.add "\"" & i & "\""
-      comma = ""
-    elif i == ",":
-      inter.add parseExpr(interExpr.join " & ")
-      interExpr = newSeq[string]()
-      comma = ""
-    else:
-      interExpr.add comma & "jniFqcn(" & i & ")"
-      comma = "\", \" & "
-      interConv.add i
-      #inter.add(newCall("jniFqcn", newIdentNode(i)))
-  if interExpr.len != 0:
-    inter.add parseExpr(interExpr.join " & ")
-  echo "inter: ", inter.repr
+  var jinters = newCall(bindSym"varargsToStr")
+  for i,interT in interfaces:
+    inter.add(newCall("jniFqcn", newIdentNode(interT.name)))
+    jinters.add(newCall("jniFqcn", newIdentNode(interT.name)))
+    if interT.genericArgs.len != 0:
+      jinters.add newLit("<")
+    toJInterfGens interT.genericArgs, inter, jinters
+    if i != interfaces.len-1:
+      jinters.add newLit(", ")
+  
+  echo "jinters: ", jinters.repr
   var nativeMethodDefs = newNimNode(nnkBracket)
 
   var staticSection = newLit("")
@@ -489,7 +508,7 @@ macro jexport*(a: varargs[untyped]): untyped =
         finalizeJobject(jniEnv, this, p)
 
 
-  result.add newCall(bindSym"genJexportGlue", newLit(className), parentFq, inter, newLit(isPublic), methodDefs, staticSection, emitSection)
+  result.add newCall(bindSym"genJexportGlue", newLit(className), parentFq, inter, jinters, newLit(isPublic), methodDefs, staticSection, emitSection)
 
   # Add finalizer impl
   # nativeMethodDefs.add(newTree(nnkObjConstr, newIdentNode("JNINativeMethod"),
@@ -513,9 +532,9 @@ macro jexport*(a: varargs[untyped]): untyped =
   result.add(constructors)
 
   # Generate interface converters
-  for interf in interConv:
-    let converterName = newIdentNode("to" & interf)
-    let interfaceName = newIdentNode(interf)
+  for interf in interfaces:
+    let converterName = newIdentNode("to" & interf.name)
+    let interfaceName = newIdentNode(interf.name)
     result.add quote do:
       converter `converterName`*(v: `classNameIdent`): `interfaceName` {.inline.} =
         cast[`interfaceName`](v)
