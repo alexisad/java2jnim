@@ -760,13 +760,13 @@ initJNI(JNIVersion.v1_8, @["-Djava.class.path=build"])
 
 type
     MyObj = ref object of JVMObject
-    KyZbj = ref object of JVMObject
+    #KyZbj = ref object of JVMObject
 
 jexport MyObj implements Consumer[MapEntry[Integer, string]]:#, Integer[Stream[Integer], Consumer[string], Double, Long[Set, Comparable, Boolean]]:
     proc new() = super()
     proc accept(i: MapEntry[Integer, string]) =
         System.`out`.println "i: " & $i
-#[jexport KyZbj implements Consumer, Integer, Double[String], Long[Set, Comparable, Boolean]:
+#[jexport KyZbj implements Consumer, Integer[Double[String], Long[Set, Comparable, Boolean]]:
     proc new() = super()
     proc accept(i: MapEntry[Integer, string]) =
         System.`out`.println "i: " & $i]#

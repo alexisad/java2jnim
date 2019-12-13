@@ -30,14 +30,17 @@ proc genGenericArgs(nI: NimNode, clsName: var TypeName) =
     of nnkIdent:
       if i == 0 and clsName.genericArgs.len == 0:
         clsName.name = $a
+        echo "clsName: ", clsName
       #elif i == 0 and clsName.genericArgs.len != 0:
         #clsName.genericArgs.add GenericArgDef(name: TypeName(name: $a))
       else:
-        clsName.genericArgs.add GenericArgDef(name: TypeName(name: $a))
+        clsName.genericArgs.add( GenericArgDef(name: TypeName(name: $a)) )
+        echo "clsName add: ", clsName
     of nnkBracketExpr:
       var clsWithGens = TypeName()
-      clsName.genericArgs.add GenericArgDef(name: clsWithGens)
-      genGenericArgs(a, clsName)
+      clsName.genericArgs.add( GenericArgDef(name: clsWithGens) )
+      echo "clsWithGens: ", clsName
+      genGenericArgs(a, clsName.genericArgs[^1].name)
     else:
       echo "Unexpected node: ", repr(a), "\n", treeRepr(a)
       doAssert(false)
@@ -383,10 +386,12 @@ macro jexport*(a: varargs[untyped]): untyped =
       assert(not v.getNoCreate.isNil)
       `nonVirtualClassNameIdent`(obj: v.getNoCreate)
 
-  proc toJInterfGens(genIinters: seq[GenericArgDef], inters: var NimNode, jinters: NimNode#[var seq[NimNode]]#) =
+  proc toJInterfGens(genIinters: seq[GenericArgDef], inters: var NimNode, jinters: NimNode) =
     for i,genI in genIinters:
       inters.add newCall("jniFqcn", newIdentNode(genI.name.name))
       jinters.add(newCall("jniFqcn", newIdentNode(genI.name.name)))
+      if genI.name.genericArgs.len != 0:
+        jinters.add newLit("<")
       toJInterfGens genI.name.genericArgs, inters, jinters
       if i != genIinters.len-1:
         jinters.add newLit(", ")
