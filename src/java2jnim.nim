@@ -141,25 +141,6 @@ proc parseGenericArgs(s: string, args: var seq[GenericArgDef], start: int): int 
                 result += pos
                 break
 
-proc parseTypeName_old(s: string, tn: var TypeName, start: int): int =
-    ##echo "-tn.name"
-    ##echo tn.name, s
-    result = s.parseWhile(tn.name, IdentChars + {'.', '$'}, start)
-    #echo "tn.name: ", tn.name
-    if result != 0:
-        result += s.parseGenericArgs(tn.genericArgs, start + result)
-        ##echo "tn.genericArgs: ", tn.genericArgs
-    var pos = s.skip("[][]", start + result)
-    result += pos
-    if pos != 0:
-        tn.isArray = true
-        tn.countArrayDeep = 2
-    pos = s.skip("[]", start + result)
-    result += pos
-    if pos != 0:
-        tn.isArray = true
-        tn.countArrayDeep = 1
-
 
 proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     #var dummStr: string
@@ -517,7 +498,7 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
     if not classExists(jclsDefs, tN & "*") and
                 not classExists(jclsDefs, tN & " as") and
                 tN.contains ".":
-        let javapOutput = staticExec("javap -public -s " & tN.replace("...", ""))
+        let javapOutput = staticExec( "javap -public -s " & tN.multiReplace( ("...", ""), ("$", ".") ) )
         echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
@@ -557,7 +538,7 @@ macro jnimport_all*(e: untyped): untyped =
         eList = e
     for eN in eList:
         let className = nodeToString(eN)
-        let javapOutput = staticExec("javap -public -s " & className)
+        let javapOutput = staticExec("javap -public -s " & className.multiReplace( ("...", ""), ("$", ".") ))
         echo javapOutput
         #var cJavapOutput = javapOutput.replace("...", "")
         var cJavapOutput = javapOutput

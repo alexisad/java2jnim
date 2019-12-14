@@ -5,10 +5,22 @@
 import jnim
 import java2jnim, java2jnim/jni_export
 import unittest
-import strutils
+import strutils, random
 import sequtils except toSeq
 
-    
+when false:
+    jnimport_all:
+        java.lang.Object
+        java.lang.Comparable
+        java.lang.Number
+        java.lang.Boolean
+        java.lang.Integer
+        java.lang.Long
+        java.lang.Double
+        java.lang.String
+        java.util.function.Consumer
+        java.util.stream.Stream
+
 when true:
     jnimport_all:
         java.lang.Object
@@ -19,8 +31,8 @@ when true:
         java.lang.Long
         java.lang.Double
         java.lang.String
-        java.util.stream.Stream
         java.util.function.Consumer
+        java.util.stream.Stream
         java.util.stream.Stream$Builder as StreamBuilder
         java.util.Collection
         java.util.Collections
@@ -49,10 +61,10 @@ when false:
     jclassDef java.lang.Long * of Number
     jclassDef java.lang.Double * of Number
     jclassDef java.lang.String * of Object
+    jclassDef java.util.function.Consumer * [T] of Object
     jclassDef java.lang.AutoCloseable * of Object
     jclassDef java.util.stream.BaseStream * [T, S] of AutoCloseable
     jclassDef java.util.stream.Stream * [T] of BaseStream[T, Object]
-    jclassDef java.util.function.Consumer * [T] of Object
     jclassDef java.util.stream.Stream $ Builder * [T] as StreamBuilder of Consumer[T]
     jclassDef java.lang.Iterable * [T] of Object
     jclassDef java.util.Collection * [E] of Iterable[E]
@@ -397,6 +409,9 @@ when false:
         proc valueOf*(a081: jdouble): String {.`static`.}
         proc intern*(): String
         proc compareTo*(a083: Object): jint
+    jclassImpl java.util.function.Consumer * [T] of Object:
+        proc accept*(a00: T)
+        proc andThen*(a01: Consumer[T]): Consumer[T]
     jclassImpl java.util.stream.Stream * [T] of BaseStream[T, Object]:
         proc filter*(a00: Predicate[T]): Stream[T]
         proc map*[R](a01: Function[T, R]): Stream[R]
@@ -437,9 +452,6 @@ when false:
         proc iterate*[T](a036: T; a136: UnaryOperator[T]): Stream[T] {.`static`.}
         proc generate*[T](a037: Supplier[T]): Stream[T] {.`static`.}
         proc concat*[T](a038: Stream[T]; a138: Stream[T]): Stream[T] {.`static`.}
-    jclassImpl java.util.function.Consumer * [T] of Object:
-        proc accept*(a00: T)
-        proc andThen*(a01: Consumer[T]): Consumer[T]
     jclassImpl java.util.stream.Stream $ Builder * [T] as StreamBuilder of Consumer[T]:
         proc accept*(a00: T)
         proc add*(a01: T): StreamBuilder[T]
@@ -742,9 +754,6 @@ when false:
         proc apply*(a00: T; a10: U): R
         proc andThen*[V](a01: Function[R, V]): BiFunction[T, U, V]
 
-
-
-
 #################################################################################################### 
 # Helpers
 
@@ -760,11 +769,15 @@ initJNI(JNIVersion.v1_8, @["-Djava.class.path=build"])
 
 type
     MyObj = ref object of JVMObject
-    #KyZbj = ref object of JVMObject
+    KyZbj = ref object of JVMObject
 
 jexport MyObj implements Consumer[MapEntry[Integer, string]]:#, Integer[Stream[Integer], Consumer[string], Double, Long[Set, Comparable, Boolean]]:
     proc new() = super()
     proc accept(i: MapEntry[Integer, string]) =
+        System.`out`.println "i: " & $i
+jexport KyZbj implements Consumer[MapEntry[string, string]]:#, Integer[Stream[Integer], Consumer[string], Double, Long[Set, Comparable, Boolean]]:
+    proc new() = super()
+    proc accept(i: MapEntry[string, string]) =
         System.`out`.println "i: " & $i
 #[jexport KyZbj implements Consumer, Integer[Double[String], Long[Set, Comparable, Boolean]]:
     proc new() = super()
@@ -772,7 +785,7 @@ jexport MyObj implements Consumer[MapEntry[Integer, string]]:#, Integer[Stream[I
         System.`out`.println "i: " & $i]#
         
 let cnsO = MyObj.new()
-#let cnsK = KyZbj.new()
+let cnsK = jcast[Consumer[MapEntry[string, string]]] KyZbj.new()
 
 
 
@@ -833,4 +846,18 @@ suite "java.util":
         while it.hasNext:
             let me = jcast[ MapEntry[Integer, string] ](it.next)
             echo me.getKey
-
+    test "java.util.Map use large data":
+        var alph = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_".repeat 10
+        randomize()
+        shuffle(alph)
+        echo alph
+        var x = HashMap[string, string].new()
+        for i in 0..1_000_000:
+            discard x.put($i & alph, alph & $i)
+        GC_fullCollect()
+        let xSet = x.entrySet()
+        let stm = xSet
+                .stream()
+                .sorted( Collections.reverseOrder(MapEntry[string, string].comparingByValue) )
+                .limit(50)
+        stm.forEach(cnsK)
