@@ -1,4 +1,6 @@
-import parseutils, strutils, macros
+import parseutils, strutils, macros, strformat
+
+const jcp {.strdefine.}: string = ""
 
 type
     AccessType* = enum
@@ -154,7 +156,7 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
         if pos != 0:
             discard s.parseWhile(genType, IdentChars, pos + start)
             genType = "[" & genType & "]"
-            echo "genType: ", genType
+            #echo "genType: ", genType
             inc pos
             while true:
                 var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
@@ -247,8 +249,8 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
     result += s.parseMethodModifiers(meth, result)
     result += s.parseGenericArgs(meth.genericArgs, result)
     result += s.skipWhitespace(result)
-    if meth.genericArgs.len != 0:
-        echo "genType: ", meth.genericArgs
+    #if meth.genericArgs.len != 0:
+        #echo "genType: ", meth.genericArgs
     result += s.parseTypeName(meth.retType, result)
     pos = s.skip("(", result)
     result += pos
@@ -291,8 +293,8 @@ proc parseMethods(s: string, methods: var seq[MethodDef], start: int): int =
     while true:
         methods.add(MethodDef())
         #echo "methods: ", methods
-        if methods.len >= 2:
-            echo "methods[^2]: ", methods[^2]
+        #if methods.len >= 2:
+            #echo "methods[^2]: ", methods[^2]
         var pos = s.parseMethod(methods[^1], result)
         result += pos
         if pos == 0:
@@ -477,15 +479,15 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
             clNameOf &= "Object"
     else:
         var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true)
-        if genericExt.len > 1 and genericExt[^2..^1] == "]]":
-            echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
+        #if genericExt.len > 1 and genericExt[^2..^1] == "]]":
+            #echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
         clNameOf &= cd.extends.name.split(".")[^1] & genericExt
     #echo "set jclassDef: ", cd.name.genericArgs
     #echo "jclassDef " & clNameOf
     result.className = className
     result.clNameOf = clNameOf
-    if className.strip() == "*":
-        echo "className: ", cd
+    #if className.strip() == "*":
+        #echo "className: ", cd
     #result.add parseStmt("jclassDef " & clNameOf)
 
 
@@ -498,8 +500,15 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
     if not classExists(jclsDefs, tN & "*") and
                 not classExists(jclsDefs, tN & " as") and
                 tN.contains ".":
-        let javapOutput = staticExec( "javap -public -s " & tN.multiReplace( ("...", ""), ("$", ".") ) )
-        echo javapOutput
+        let cp = 
+            when defined(jcp):
+                "-cp " & jcp
+            else:
+                ""
+        let javapCmd = &"javap -public -s {cp} " & tN.multiReplace( ("...", ""), ("$", ".") )
+        echo "2. javapCmd: ", javapCmd 
+        let javapOutput = staticExec( javapCmd )
+        #echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
         let clDef = jclassDefFromArg(jclsDefs, cdT.extends)
@@ -536,14 +545,20 @@ macro jnimport_all*(e: untyped): untyped =
         eList.add e
     else:
         eList = e
+    let cp = 
+        when defined(jcp):
+            "-cp " & jcp
+        else:
+            ""
     for eN in eList:
         let className = nodeToString(eN)
-        let javapOutput = staticExec("javap -public -s " & className.multiReplace( ("...", ""), ("$", ".") ))
-        echo javapOutput
+        let javapCmd = &"javap -public -s {cp} " & className.multiReplace( ("...", ""), ("$", ".") )
+        echo "javapCmd: ", javapCmd
+        let javapOutput = staticExec(javapCmd)
+        echo "javapOutput: ", javapOutput
         #var cJavapOutput = javapOutput.replace("...", "")
-        var cJavapOutput = javapOutput
-                        #.replace("...", "")
-                        .replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
+        #var cJavapOutput = javapOutput
+                        #[.replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A[] getAnnotationsByType(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getDeclaredAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
@@ -553,11 +568,11 @@ macro jnimport_all*(e: untyped): untyped =
         cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T getDeclaredAnnotation(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T[] getDeclaredAnnotationsByType(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
         cJavapOutput = cJavapOutput.replace("  public abstract <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
+        cJavapOutput = cJavapOutput.replace("  public <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")]#
         #echo cJavapOutput
         var cdT: ClassDef
         cdT.asName = nodeToAsName(eN)
-        discard parseJavap(cJavapOutput, cdT)
+        discard parseJavap(javapOutput, cdT)
         if cdT.asName != "":
             collectSetAliases(cdT, clsAliases)
         #echo "cdT: ", cdT
@@ -658,4 +673,4 @@ macro jnimport_all*(e: untyped): untyped =
     result.add parseStmt(clsDefs)
     result.add parseStmt(clsImpls)
     #echo "REPR:"
-    echo result.repr
+    #echo result.repr
