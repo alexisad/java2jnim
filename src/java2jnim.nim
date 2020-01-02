@@ -40,6 +40,10 @@ type
         implements*: seq[TypeName]
         access*: AccessType
         final*: bool
+        postReplaces: seq[tuple[fromStr, toStr: string]] #sometimes fails in java class description needed to replace
+    JClassDescr* = object
+        className: string
+        postReplaces: seq[tuple[fromStr, toStr: string]]
 
 type
     ClsAliasPair = tuple[shortName, alias: string]
@@ -138,7 +142,12 @@ proc parseGenericArgs(s: string, args: var seq[GenericArgDef], start: int): int 
             pos = s.skip(",", result)
             result += pos
             if pos == 0:
+                #echo "sss:", s[result..^1]
                 pos = s.skip(">", result)
+                if pos == 0:
+                    pos = s.skipUntil({'>'}, result)
+                    result += pos
+                    pos = s.skip(">", result)
                 assert(pos == 1)
                 result += pos
                 break
@@ -276,6 +285,7 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
         meth.argTypes = newSeq[TypeName]()
         result += s.parseCommaSeparatedTypeList(meth.argTypes, result)
         result += s.skipWhitespace(result)
+        #echo "mmm:", s[result..^1]
         pos = s.skip(")", result)
         result += pos
         assert(pos != 0)
@@ -337,19 +347,34 @@ proc nodeToAsName(e: NimNode): string {.compileTime.} =
     if e.kind == nnkInfix and $e[0] == "as":
         result = $e[2]
 
-proc nodeToString(e: NimNode): string {.compileTime.} =
+proc nodeToJClassDescr(e: NimNode): JClassDescr {.compileTime.} =
     if e.kind == nnkIdent:
-        result = $e
+        result.className = $e
     elif e.kind == nnkAccQuoted:
-        result = ""
+        result.className = ""
         for s in e.children:
-            result &= nodeToString(s)
+            result.className &= nodeToJClassDescr(s).className
     elif e.kind == nnkDotExpr:
-        result = nodeToString(e[0]) & "." & nodeToString(e[1])
+        result.className = nodeToJClassDescr(e[0]).className & "." & nodeToJClassDescr(e[1]).className
     elif e.kind == nnkInfix and $e[0] == "$":
-        result = nodeToString(e[1]) & "$" & nodeToString(e[2])
+        result.className = nodeToJClassDescr(e[1]).className & "$" & nodeToJClassDescr(e[2]).className
     elif e.kind == nnkInfix and $e[0] == "as":
-        result = nodeToString(e[1])
+        result.className = nodeToJClassDescr(e[1]).className
+    elif e.kind == nnkCall and e[0].kind == nnkDotExpr:
+        result.className &= nodeToJClassDescr(e[0]).className
+        if e.len > 1:
+            let jclsDesc = nodeToJClassDescr(e[1])
+            result.className &= jclsDesc.className
+            result.postReplaces.add jclsDesc.postReplaces
+    elif e.kind == nnkStmtList and e[0].kind == nnkCall and
+            $e[0][0] == "postReplaces":
+        for pRepls in e[0][1]:
+            echo $pRepls[0]
+            echo $pRepls[1]
+            result.postReplaces.add (fromStr: $pRepls[0], toStr: $pRepls[1])
+        echo "postProcess:", result.postReplaces
+        echo treeRepr(e)
+        #discard
     else:
         ##echo treeRepr(e)
         assert(false, "Cannot stringize node")
@@ -426,13 +451,25 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef
             else:
                 arg.name.split(".")[^1]
         else:
-            if arg.name.len < 3: #some T, K, N
-                if arg.name == "?" and argG.to.name != "":
-                    if argG.relation == "extends": argG.to.name else: argG.to.name
+            if arg.name in ["boolean",
+                            "int",
+                            "byte",
+                            "short",
+                            "long",
+                            "float",
+                            "double",
+                            "char",
+                            "void"
+                                ]:
+                "j" & arg.name
+            else:
+                if arg.name.len < 3: #some T, K, N
+                    if arg.name == "?" and argG.to.name != "":
+                        argG.to.name
+                    else:
+                        arg.name
                 else:
                     arg.name 
-            else:
-                "j" & arg.name
     if inp:
         case result
         of "String":
@@ -451,9 +488,9 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef
             result = "seq[seq[" & result & "]]"
     if isVarArg:
         result = "varargs[" & result & "]"
-    result = result.replace("[?]", "[Object]")
-    result = result.replace("[?,?]", "[Object,Object]")
-    result = result.replace("[?,?,?]", "[Object,Object,Object]")
+    result = result.replace("?]", "Object]")
+    result = result.replace("?,?]", "Object,Object]")
+    result = result.replace("?,?,?]", "Object,Object,Object]")
 
 
 proc classExists(jClsDefs: seq[string], name: string): bool =
@@ -507,7 +544,10 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
                 ""
         let javapCmd = &"javap -public -s {cp} " & tN.multiReplace( ("...", ""), ("$", ".") )
         echo "2. javapCmd: ", javapCmd 
-        let javapOutput = staticExec( javapCmd )
+        let javapOutputTmp = staticExec( javapCmd )
+        if javapOutputTmp.find("class not found") != -1:
+            quit(javapOutputTmp, 1)
+        let javapOutput = javapOutputTmp.replace("", "")
         #echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
@@ -521,22 +561,24 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
 
 
 proc collectSetAliases(cd: ClassDef, clsAliases: var seq[ClsAliasPair]) =
+    template toAlias(prfx, shName, psfx: string): untyped =
+        clsAliases.add (shortName: prfx & shortName & psfx, alias: prfx & cd.asName & psfx)
     let shortName = cd.name.name.split(".")[^1]
-    var prfx = " of "
-    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
-    #prfx = " : "
-    #clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
-    prfx = "["
-    clsAliases.add (shortName: prfx & shortName & prfx, alias: prfx & cd.asName & prfx)
-    prfx = "["
-    clsAliases.add (shortName: prfx & shortName & "]", alias: prfx & cd.asName & "]")
-    prfx = ": "
-    clsAliases.add (shortName: prfx & shortName, alias: prfx & cd.asName)
+    toAlias(" of ", shortName, "")
+    toAlias(",", shortName, "]")
+    toAlias(",", shortName, ",")
+    toAlias("[", shortName, ",")
+    toAlias("[", shortName, "]")
+    toAlias("", shortName, "[")
+    toAlias(": ", shortName, " ")
+    toAlias(": ", shortName, ")")
+    toAlias(": ", shortName, ";")
+    toAlias(": ", shortName, "\l")
 
 
 macro jnimport_all*(e: untyped): untyped =
-    #echo "e:"
-    #echo e.treeRepr
+    echo "e:"
+    echo e.treeRepr
     #echo e.kind
     var cds = newSeq[ClassDef]()
     var clsAliases = newSeq[ClsAliasPair]()
@@ -551,28 +593,22 @@ macro jnimport_all*(e: untyped): untyped =
         else:
             ""
     for eN in eList:
-        let className = nodeToString(eN)
+        let jclassDescr = nodeToJClassDescr(eN)
+        let className = jclassDescr.className
         let javapCmd = &"javap -public -s {cp} " & className.multiReplace( ("...", ""), ("$", ".") )
         echo "javapCmd: ", javapCmd
-        let javapOutput = staticExec(javapCmd)
+        let javapOutputTmp = staticExec(javapCmd)
+        if javapOutputTmp.find("class not found") != -1:
+            quit(javapOutputTmp, 1)
+        let javapOutput = javapOutputTmp.replace("", "")
         echo "javapOutput: ", javapOutput
-        #var cJavapOutput = javapOutput.replace("...", "")
-        #var cJavapOutput = javapOutput
-                        #[.replace("  public <U> java.lang.Class<? extends U> asSubclass(java.lang.Class<U>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/Class;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A[] getAnnotationsByType(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A getDeclaredAnnotation(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <A extends java.lang.annotation.Annotation> A[] getDeclaredAnnotationsByType(java.lang.Class<A>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T getAnnotation(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T[] getAnnotationsByType(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T getDeclaredAnnotation(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T extends java.lang.annotation.Annotation> T[] getDeclaredAnnotationsByType(java.lang.Class<T>);\l    descriptor: (Ljava/lang/Class;)[Ljava/lang/annotation/Annotation;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public abstract <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")
-        cJavapOutput = cJavapOutput.replace("  public <T> T[] toArray(T[]);\l    descriptor: ([Ljava/lang/Object;)[Ljava/lang/Object;\l\l", "")]#
         #echo cJavapOutput
         var cdT: ClassDef
         cdT.asName = nodeToAsName(eN)
         discard parseJavap(javapOutput, cdT)
+        if jclassDescr.postReplaces.len != 0:
+            echo "jclassDescr.postReplaces:", jclassDescr.postReplaces
+            cdT.postReplaces = jclassDescr.postReplaces
         if cdT.asName != "":
             collectSetAliases(cdT, clsAliases)
         #echo "cdT: ", cdT
@@ -650,17 +686,15 @@ macro jnimport_all*(e: untyped): untyped =
                 propPragms.add "final"
             if m.`static`:
                 propPragms.add "`static`"
-            let argsStr =
-                if args.len != 0:
-                    "(" & args.join(", ") & ")"
-                else:
-                    ""
-            impls.add "  proc " & prcN & "*" & methGenType & argsStr &
-                    (if retArg != "jvoid": ": " & retArg else: "") &
-                    (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
-            let mN = createMethod(m)
-            #implMeths.add mN
-            ##echo m
+            let argsStr = "(" & args.join(", ") & ")"
+            var procDef = "  proc " & prcN & "*" & methGenType & argsStr &
+                (if retArg != "jvoid": ": " & retArg else: "") &
+                (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
+            for r in cd.postReplaces:
+                echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
+                echo procDef
+                procDef = procDef.replaceWord(r.fromStr, r.toStr)
+            impls.add procDef
     #echo "jclsDefs Expr:"
     #echo jclsDefs.join("\n")
     var clsDefs = jclsDefs.join("\n")
@@ -669,8 +703,11 @@ macro jnimport_all*(e: untyped): untyped =
             #.replace("K,V,V", "K,V,V1")
     for als in clsAliases:
         clsDefs = clsDefs.replace(als.shortName, als.alias)
+        echo "multiReplace0:", als.shortName, "->", als.alias
         clsImpls = clsImpls.replace(als.shortName, als.alias)
     result.add parseStmt(clsDefs)
+    echo "clsImpls:"
+    echo clsImpls
     result.add parseStmt(clsImpls)
-    #echo "REPR:"
-    #echo result.repr
+    echo "REPR:"
+    echo result.repr
