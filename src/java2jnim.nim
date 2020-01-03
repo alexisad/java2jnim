@@ -417,6 +417,13 @@ proc hasIgnoredClasses(m: MethodDef, clss: seq[string]): bool =
 
 proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string
 
+proc genericArg2Java(gArgs: seq[GenericArgDef], jArgs: var seq[string]) =
+    for a in gArgs:
+        if a.name.genericArgs.len > 0:
+            genericArg2Java(a.name.genericArgs, jArgs)
+        if a.name.name.contains("."):
+            jArgs.add(a.name.name.replace("...", ""))
+
 proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false, isExtends = false): string =
     if gArgs.len == 0:
         return ""
@@ -648,6 +655,17 @@ macro jnimport_all*(e: untyped): untyped =
         let className = cd.name.name
         #var implMeths = newTree(nnkStmtList)
         for i,m in cd.methods:
+            #echo "GenArgs:", m.genericArgs
+            #echo "GenArgs RetType:", m.retType.genericArgs
+            var jClsFromGeneric: seq[string]
+            genericArg2Java(m.genericArgs, jClsFromGeneric)
+            genericArg2Java(m.retType.genericArgs, jClsFromGeneric)
+            for jCls in jClsFromGeneric:
+                let clDef = jclassDefFromArg(jclsDefs, TypeName(name: jCls))
+                if clDef.len != 0:
+                    jclsDefs.add clDef
+            #if jClsFromGeneric.len > 0:
+                #echo "jClsFromGeneric:", jClsFromGeneric
             #echo m.name, " --------------------", m.descriptor
             #echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
             let methGenType = genericArg2Nim m.genericArgs
@@ -657,6 +675,8 @@ macro jnimport_all*(e: untyped): untyped =
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
+            if prcN.contains '$':
+                prcN = "`" & prcN & "`"
             case m.name
             of "cast":
                 prcN = "`cast`"
