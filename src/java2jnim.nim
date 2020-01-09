@@ -184,7 +184,7 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     #echo "tn.name: ", tn.name
     if result != 0:
         result += s.parseGenericArgs(tn.genericArgs, start + result)
-        ##echo "tn.genericArgs: ", tn.genericArgs
+        #echo "tn.genericArgs: ", tn.genericArgs
     var dotsname: string
     result += s.parseWhile(dotsname, {'.'}, start + result)
     tn.name &= dotsname
@@ -286,6 +286,7 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
         result += s.parseCommaSeparatedTypeList(meth.argTypes, result)
         result += s.skipWhitespace(result)
         #echo "mmm:", s[result..^1]
+        #echo "meth:", meth
         pos = s.skip(")", result)
         result += pos
         assert(pos != 0)
@@ -534,6 +535,21 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
         #echo "className: ", cd
     #result.add parseStmt("jclassDef " & clNameOf)
 
+proc replaceInnGener(s: string): string =
+    var sr: string
+    var num = s.parseUntil(result, ">.")
+    if num == s.len:
+        return s
+    while true:
+        dec(num)
+        var t: string
+        let pos = result.parseUntil(t, "<", num)
+        if pos == 0:
+            break
+        else:
+            sr = result.substr(num)
+    result = s.replace("<" & sr & ">.", ".")
+
 
 proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
     #[
@@ -554,7 +570,7 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
         let javapOutputTmp = staticExec( javapCmd )
         if javapOutputTmp.find("class not found") != -1:
             quit(javapOutputTmp, 1)
-        let javapOutput = javapOutputTmp.replace("", "")
+        let javapOutput = javapOutputTmp.replaceInnGener
         #echo javapOutput
         var cdT: ClassDef
         discard parseJavap(javapOutput, cdT, false)
@@ -607,7 +623,7 @@ macro jnimport_all*(e: untyped): untyped =
         let javapOutputTmp = staticExec(javapCmd)
         if javapOutputTmp.find("class not found") != -1:
             quit(javapOutputTmp, 1)
-        let javapOutput = javapOutputTmp.replace("", "")
+        let javapOutput = javapOutputTmp.replaceInnGener
         echo "javapOutput: ", javapOutput
         #echo cJavapOutput
         var cdT: ClassDef
@@ -675,6 +691,7 @@ macro jnimport_all*(e: untyped): untyped =
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
+            prcN = prcN.multireplace(("_$", ""), ("$_", ""))
             if prcN.contains '$':
                 prcN = "`" & prcN & "`"
             case m.name
@@ -711,8 +728,8 @@ macro jnimport_all*(e: untyped): untyped =
                 (if retArg != "jvoid": ": " & retArg else: "") &
                 (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
             for r in cd.postReplaces:
-                echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
-                echo procDef
+                #echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
+                #echo procDef
                 procDef = procDef.replaceWord(r.fromStr, r.toStr)
             impls.add procDef
     #echo "jclsDefs Expr:"
