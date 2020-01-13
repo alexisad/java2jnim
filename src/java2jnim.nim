@@ -1,4 +1,4 @@
-import parseutils, strutils, macros, strformat
+import parseutils, strutils, macros, strformat, tables, sequtils
 
 const jcp {.strdefine.}: string = ""
 
@@ -361,6 +361,10 @@ proc nodeToJClassDescr(e: NimNode): JClassDescr {.compileTime.} =
         result.className = nodeToJClassDescr(e[1]).className & "$" & nodeToJClassDescr(e[2]).className
     elif e.kind == nnkInfix and $e[0] == "as":
         result.className = nodeToJClassDescr(e[1]).className
+        if e.len > 3:
+            let jclsDesc = nodeToJClassDescr(e[3])
+            result.postReplaces.add jclsDesc.postReplaces
+            echo "asas:", nodeToJClassDescr(e[3]), "<-"
     elif e.kind == nnkCall and e[0].kind == nnkDotExpr:
         result.className &= nodeToJClassDescr(e[0]).className
         if e.len > 1:
@@ -416,7 +420,9 @@ proc hasIgnoredClasses(m: MethodDef, clss: seq[string]): bool =
             return true;
 
 
-proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string
+proc argDescr(arg: TypeName, inp = true, chckGeneric = true,
+                argG: GenericArgDef = GenericArgDef(),
+                aliases: Table[string, string]): string
 
 proc genericArg2Java(gArgs: seq[GenericArgDef], jArgs: var seq[string]) =
     for a in gArgs:
@@ -425,7 +431,9 @@ proc genericArg2Java(gArgs: seq[GenericArgDef], jArgs: var seq[string]) =
         if a.name.name.contains("."):
             jArgs.add(a.name.name.replace("...", ""))
 
-proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false, isExtends = false): string =
+proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false,
+                    isExtends = false,
+                    aliases: Table[string, string]): string =
     if gArgs.len == 0:
         return ""
     var args: seq[string]
@@ -434,30 +442,40 @@ proc genericArg2Nim(gArgs: seq[GenericArgDef], isClassName = false, isExtends = 
             if isExtends and a.name.genericArgs.len > 0:
                 "Object" # avoid ]] at the end of generic extends
             else:
-                genericArg2Nim(a.name.genericArgs)
+                genericArg2Nim(a.name.genericArgs, aliases = aliases)
         let aName =
             if isClassName:
                 a.name.name
             else:
-                argDescr a.name, false, false, argG=a
+                argDescr a.name, false, false, argG=a, aliases = aliases
         if isExtends and gAstr == "Object":
             args.add gAstr
         else:
-            args.add aName.split(".")[^1] & gAstr
+            let aN =
+                if aliases.hasKey(aName):
+                    aliases[aName]
+                else:
+                    aName.split(".")[^1]
+            args.add aN & gAstr
     result = "[" & args.join(",") & "]"
 
 
 
-proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef = GenericArgDef()): string =
+proc argDescr(arg: TypeName, inp = true, chckGeneric = true,
+                argG: GenericArgDef = GenericArgDef(),
+                aliases: Table[string, string]): string =
     let isVarArg =
         if arg.name.contains("..."): true
         else: false
+    let aName = arg.name.replace("...", "")
+    let aN =
+        if aliases.hasKey(aName):
+            aliases[aName]
+        else:
+            aName.split(".")[^1]
     result =
         if arg.name.contains("."):
-            if isVarArg:
-                arg.name.split(".")[^4]
-            else:
-                arg.name.split(".")[^1]
+            aN
         else:
             if arg.name in ["boolean",
                             "int",
@@ -488,7 +506,7 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef
             result = "bool"
         #result &=  (if result == "TypeVariable": genericArg2Nim(arg.genericArgs) else: "")
     if chckGeneric:
-        result &=  genericArg2Nim(arg.genericArgs)
+        result &=  genericArg2Nim(arg.genericArgs, aliases = aliases)
     if arg.isArray:
         if arg.countArrayDeep == 1:
             result = "seq[" & result & "]"
@@ -503,13 +521,19 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true, argG: GenericArgDef
 
 proc classExists(jClsDefs: seq[string], name: string): bool =
     result = false
+    if name.contains("GroupedIterator"):
+        echo "GroupedIterator:", name, "->", jClsDefs
     for def in jClsDefs:
         if def.contains("jclassDef " & name):
             return true
 
+proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName,
+        aliases: var Table[string, string]): seq[string]
 
-proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: string] =
-    let genericArg = genericArg2Nim(cd.name.genericArgs, true)
+
+proc makejclassDef(cd: ClassDef, withAsCls = true,
+                    aliases: Table[string, string]): tuple[className, clNameOf: string] =
+    let genericArg = genericArg2Nim(cd.name.genericArgs, isClassName=true, aliases=aliases)
     let asClsName =
         if cd.asName != "" and withAsCls:
             " as " & cd.asName & (if genericArg == "": "*" else: "")
@@ -523,10 +547,21 @@ proc makejclassDef(cd: ClassDef, withAsCls = true): tuple[className, clNameOf: s
         else:
             clNameOf &= "Object"
     else:
-        var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true)
+        var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true, aliases = aliases)
+        echo "cd.extends.genericArgs:", cd.extends.genericArgs
+        #[for genArg in cd.extends.genericArgs:
+            echo "genArg.name:", genArg.name
+            let clDef = jclassDefFromArg(jclsDefs, genArg.name, aliases = aliases)
+            if clDef.len != 0:
+                jclsDefs.add clDef]#
         #if genericExt.len > 1 and genericExt[^2..^1] == "]]":
             #echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
-        clNameOf &= cd.extends.name.split(".")[^1] & genericExt
+        let aN =
+            if aliases.hasKey(cd.extends.name):
+                aliases[cd.extends.name]
+            else:
+                cd.extends.name.split(".")[^1]
+        clNameOf &= aN & genericExt
     #echo "set jclassDef: ", cd.name.genericArgs
     #echo "jclassDef " & clNameOf
     result.className = className
@@ -551,34 +586,55 @@ proc replaceInnGener(s: string): string =
     result = s.replace("<" & sr & ">.", ".")
 
 
-proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName): seq[string] =
+proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName,
+                        aliases: var Table[string, string]): seq[string] =
     #[
     let tNameAndGen = typeName.name & "*" &
             (genericArg2Nim typeName.genericArgs)
                 .replace("[?]", "[T]")]#
     let tN = typeName.name.replace("...", "")
-    if not classExists(jclsDefs, tN & "*") and
-                not classExists(jclsDefs, tN & " as") and
-                tN.contains ".":
-        let cp = 
-            when defined(jcp):
-                "-cp " & jcp
-            else:
-                ""
-        let javapCmd = &"javap -public -s {cp} " & tN.multiReplace( ("...", ""), ("$", ".") )
-        echo "2. javapCmd: ", javapCmd 
-        let javapOutputTmp = staticExec( javapCmd )
-        if javapOutputTmp.find("class not found") != -1:
-            quit(javapOutputTmp, 1)
-        let javapOutput = javapOutputTmp.replaceInnGener
-        #echo javapOutput
-        var cdT: ClassDef
-        discard parseJavap(javapOutput, cdT, false)
-        let clDef = jclassDefFromArg(jclsDefs, cdT.extends)
-        if clDef.len != 0:
-            result.add clDef
-        let (className, clNameOf) = makejclassDef(cdT)
-        result.add "jclassDef " & clNameOf
+    if not tN.contains("."):
+        return result
+    var tNs = newSeq[string]()
+    tNs.add tN
+    if not tN.contains("$"):
+        var tNsps = tN.split(".")
+        let tNInn = tNsps[^1]
+        tNsps.delete(tNsps.high, tNsps.high)
+        tNs.add(tNsps.join(".") & "$" & tNInn)
+    for cN in tNs:
+        if classExists(jclsDefs, cN & "*") or
+                classExists(jclsDefs, cN & " as"):
+            return result
+    let cp = 
+        when defined(jcp):
+            "-cp " & jcp
+        else:
+            ""
+    let asName =
+        if tN.contains("$"):
+            tN.replace( "$", "").split(".")
+                    .map(proc(x: string): string = x.capitalizeAscii)
+                    .join
+        else:
+            ""
+    let javapCmd = &"javap -public -s {cp} " & tN.multiReplace( ("...", ""), ("$", ".") )
+    echo "2. javapCmd: ", javapCmd 
+    let javapOutputTmp = staticExec( javapCmd )
+    if javapOutputTmp.find("class not found") != -1:
+        quit(javapOutputTmp, 1)
+    let javapOutput = javapOutputTmp.replaceInnGener
+    echo javapOutput
+    var cdT: ClassDef
+    discard parseJavap(javapOutput, cdT, false)
+    if asName != "":
+        cdT.asName = asName
+        aliases[cdT.name.name] = cdT.asName
+    let clDef = jclassDefFromArg(jclsDefs, cdT.extends, aliases = aliases)
+    if clDef.len != 0:
+        result.add clDef
+    let (className, clNameOf) = makejclassDef(cdT, aliases = aliases)
+    result.add "jclassDef " & clNameOf
     
 
 
@@ -598,6 +654,12 @@ proc collectSetAliases(cd: ClassDef, clsAliases: var seq[ClsAliasPair]) =
     toAlias(": ", shortName, ";")
     toAlias(": ", shortName, "\l")
 
+proc addJclsDefs(jclsDefs: var seq[string], jClsses: seq[string], aliases: var Table[string, string]) =
+    for jCls in jClsses:
+        let clDef = jclassDefFromArg(jclsDefs, TypeName(name: jCls), aliases = aliases)
+        if clDef.len != 0:
+            jclsDefs.add clDef
+
 
 macro jnimport_all*(e: untyped): untyped =
     echo "e:"
@@ -605,6 +667,7 @@ macro jnimport_all*(e: untyped): untyped =
     #echo e.kind
     var cds = newSeq[ClassDef]()
     var clsAliases = newSeq[ClsAliasPair]()
+    var clsAliasTbl = initTable[string, string]()
     var eList = newStmtList()  
     if e.kind != nnkStmtList:
         eList.add e
@@ -633,11 +696,12 @@ macro jnimport_all*(e: untyped): untyped =
             echo "jclassDescr.postReplaces:", jclassDescr.postReplaces
             cdT.postReplaces = jclassDescr.postReplaces
         if cdT.asName != "":
-            collectSetAliases(cdT, clsAliases)
+            #collectSetAliases(cdT, clsAliases)
+            discard clsAliasTbl.hasKeyOrPut(className, cdT.asName)
         #echo "cdT: ", cdT
         cds.add cdT
 
-    ##echo "All Classes: ", cds
+    #echo "All AlliasesClasses: ", clsAliasTbl
     ##echo "Class name: ", cd.name.name
     ##echo "Class Extends: ", cd.extends.name
     #dumpAstGen:
@@ -646,10 +710,15 @@ macro jnimport_all*(e: untyped): untyped =
     var jclsDefs = newSeq[string]()
     result = newStmtList()
     for cd in cds:
-        let clDef = jclassDefFromArg(jclsDefs, cd.extends)
+        let clDef = jclassDefFromArg(jclsDefs, cd.extends, aliases = clsAliasTbl)
         if clDef.len != 0:
             jclsDefs.add clDef
-        var (className, clNameOf) = makejclassDef(cd)
+        var (className, clNameOf) = makejclassDef(cd, aliases = clsAliasTbl)
+        #[for genArg in cd.extends.genericArgs:
+            echo "genArg.name:", genArg.name
+            let clDef = jclassDefFromArg(jclsDefs, genArg.name, aliases = clsAliasTbl)
+            if clDef.len != 0:
+                jclsDefs.add clDef]#
         jclsDefs.add "jclassDef " & clNameOf
         clNameOfs.add clNameOf
         if cd.name.name == "java.lang.Object":
@@ -676,22 +745,20 @@ macro jnimport_all*(e: untyped): untyped =
             var jClsFromGeneric: seq[string]
             genericArg2Java(m.genericArgs, jClsFromGeneric)
             genericArg2Java(m.retType.genericArgs, jClsFromGeneric)
-            for jCls in jClsFromGeneric:
-                let clDef = jclassDefFromArg(jclsDefs, TypeName(name: jCls))
-                if clDef.len != 0:
-                    jclsDefs.add clDef
+            addJclsDefs(jclsDefs, jClsFromGeneric, aliases = clsAliasTbl)
             #if jClsFromGeneric.len > 0:
                 #echo "jClsFromGeneric:", jClsFromGeneric
             #echo m.name, " --------------------", m.descriptor
             #echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
-            let methGenType = genericArg2Nim m.genericArgs
-            let clDef = jclassDefFromArg(jclsDefs, m.retType)
+            let methGenType = genericArg2Nim(m.genericArgs, aliases = clsAliasTbl)
+            let clDef = jclassDefFromArg(jclsDefs, m.retType, aliases = clsAliasTbl)
             if clDef.len != 0:
                 jclsDefs.add clDef
             var prcN = 
                 if m.name == className: "new"
                 else: m.name
-            prcN = prcN.multireplace(("_$", ""), ("$_", ""))
+            prcN = prcN.multireplace(("_$", "_§"), ("$_", "§_"))
+            let isUndescr = (prcN[0] == '_' or prcN[^1] == '_')
             if prcN.contains '$':
                 prcN = "`" & prcN & "`"
             case m.name
@@ -709,13 +776,18 @@ macro jnimport_all*(e: untyped): untyped =
                 prcN = "`out`"
             var args = newSeq[string]()
             for j,arg in m.argTypes:
-                let tArg = argDescr(arg)
+                let tArg = argDescr(arg, aliases = clsAliasTbl)
                 args.add "a" & $j & $i & ": " & tArg
-                let clDef = jclassDefFromArg(jclsDefs, arg)
+                let clDef = jclassDefFromArg(jclsDefs, arg, aliases = clsAliasTbl)
                 if clDef.len != 0:
                     #echo "arg= ", arg
-                    jclsDefs.add clDef    
-            let retArg = argDescr(m.retType, false)
+                    jclsDefs.add clDef
+                #[for genArRetType in arg.genericArgs:
+                    let clDefGen = jclassDefFromArg(jclsDefs, genArRetType.name, aliases = clsAliasTbl)
+                    if clDefGen.len != 0:
+                        #echo "arg= ", arg
+                        jclsDefs.add clDefGen]#
+            let retArg = argDescr(m.retType, false, aliases = clsAliasTbl)
             var propPragms = newSeq[string]()
             if m.prop:
                 propPragms.add "prop"
@@ -727,21 +799,23 @@ macro jnimport_all*(e: untyped): untyped =
             var procDef = "  proc " & prcN & "*" & methGenType & argsStr &
                 (if retArg != "jvoid": ": " & retArg else: "") &
                 (if propPragms.len != 0: " {." & propPragms.join(", ") & ".}" else: "")
+            if isUndescr:
+                procDef = procDef.replace(" proc ", " #proc ")
             for r in cd.postReplaces:
                 #echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
                 #echo procDef
                 procDef = procDef.replaceWord(r.fromStr, r.toStr)
             impls.add procDef
-    #echo "jclsDefs Expr:"
-    #echo jclsDefs.join("\n")
+    echo "jclsDefs Expr:"
+    echo jclsDefs.join("\n")
     var clsDefs = jclsDefs.join("\n")
             #.replace("K,V,V", "K,V,V1")
     var clsImpls = impls.join("\n")
             #.replace("K,V,V", "K,V,V1")
-    for als in clsAliases:
+    #[for als in clsAliases:
         clsDefs = clsDefs.replace(als.shortName, als.alias)
         echo "multiReplace0:", als.shortName, "->", als.alias
-        clsImpls = clsImpls.replace(als.shortName, als.alias)
+        clsImpls = clsImpls.replace(als.shortName, als.alias)]#
     result.add parseStmt(clsDefs)
     echo "clsImpls:"
     echo clsImpls
