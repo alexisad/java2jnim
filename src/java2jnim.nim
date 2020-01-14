@@ -782,11 +782,11 @@ macro jnimport_all*(e: untyped): untyped =
                 if clDef.len != 0:
                     #echo "arg= ", arg
                     jclsDefs.add clDef
-                #[for genArRetType in arg.genericArgs:
-                    let clDefGen = jclassDefFromArg(jclsDefs, genArRetType.name, aliases = clsAliasTbl)
+                for genArgType in arg.genericArgs:
+                    let clDefGen = jclassDefFromArg(jclsDefs, genArgType.name, aliases = clsAliasTbl)
                     if clDefGen.len != 0:
                         #echo "arg= ", arg
-                        jclsDefs.add clDefGen]#
+                        jclsDefs.add clDefGen
             let retArg = argDescr(m.retType, false, aliases = clsAliasTbl)
             var propPragms = newSeq[string]()
             if m.prop:
