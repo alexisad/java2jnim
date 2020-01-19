@@ -1,6 +1,13 @@
 import parseutils, strutils, macros, strformat, tables, sequtils
 
 const jcp {.strdefine.}: string = ""
+template dbg(x: untyped): untyped =
+    when defined(jdbgen):
+        x
+template jgen(x: untyped): untyped =
+    when defined(jgen):
+        x
+        
 
 type
     AccessType* = enum
@@ -142,7 +149,7 @@ proc parseGenericArgs(s: string, args: var seq[GenericArgDef], start: int): int 
             pos = s.skip(",", result)
             result += pos
             if pos == 0:
-                #echo "sss:", s[result..^1]
+                #dbg: echo "sss:", s[result..^1]
                 pos = s.skip(">", result)
                 if pos == 0:
                     pos = s.skipUntil({'>'}, result)
@@ -155,8 +162,8 @@ proc parseGenericArgs(s: string, args: var seq[GenericArgDef], start: int): int 
 
 proc parseTypeName(s: string, tn: var TypeName, start: int): int =
     #var dummStr: string
-    #echo "-tn.name: ", tn.name, " s: ", s, " start: ", start, " skip <: ", s.parseUntil(dummStr, {'<'}, start)
-    #echo "dummStr: ", dummStr
+    #dbg: echo "-tn.name: ", tn.name, " s: ", s, " start: ", start, " skip <: ", s.parseUntil(dummStr, {'<'}, start)
+    #dbg: echo "dummStr: ", dummStr
     var pos: int
     #result = s.parseGenericArgs(tn.genericArgs, start)
     when false:
@@ -165,26 +172,26 @@ proc parseTypeName(s: string, tn: var TypeName, start: int): int =
         if pos != 0:
             discard s.parseWhile(genType, IdentChars, pos + start)
             genType = "[" & genType & "]"
-            #echo "genType: ", genType
+            #dbg: echo "genType: ", genType
             inc pos
             while true:
                 var pos2 = s.skipWhile(IdentChars + {' ', '<', '.', '$', '?', ','}, pos + start)
                 if pos2 != 0:
                     pos2 += s.skipWhile({'>'}, pos2 + pos + start)
-                    #echo "pos parseGener: ", pos, " ", pos2
+                    #dbg: echo "pos parseGener: ", pos, " ", pos2
                     pos += pos2
                     if s.skipWhile({' '}, pos + start) != 0:
                         inc pos
-                        #echo "break"
+                        #dbg: echo "break"
                         break
-            #echo "pos parseGenerX: ", pos
+            #dbg: echo "pos parseGenerX: ", pos
         result += pos
     result += s.parseWhile(tn.name, IdentChars + {'.', '$'}, start + result)
     #tn.name = genType & tn.name
-    #echo "tn.name: ", tn.name
+    #dbg: echo "tn.name: ", tn.name
     if result != 0:
         result += s.parseGenericArgs(tn.genericArgs, start + result)
-        #echo "tn.genericArgs: ", tn.genericArgs
+        #dbg: echo "tn.genericArgs: ", tn.genericArgs
     var dotsname: string
     result += s.parseWhile(dotsname, {'.'}, start + result)
     tn.name &= dotsname
@@ -259,7 +266,7 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
     result += s.parseGenericArgs(meth.genericArgs, result)
     result += s.skipWhitespace(result)
     #if meth.genericArgs.len != 0:
-        #echo "genType: ", meth.genericArgs
+        #dbg: echo "genType: ", meth.genericArgs
     result += s.parseTypeName(meth.retType, result)
     pos = s.skip("(", result)
     result += pos
@@ -285,8 +292,8 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
         meth.argTypes = newSeq[TypeName]()
         result += s.parseCommaSeparatedTypeList(meth.argTypes, result)
         result += s.skipWhitespace(result)
-        #echo "mmm:", s[result..^1]
-        #echo "meth:", meth
+        #dbg: echo "mmm:", s[result..^1]
+        #dbg: echo "meth:", meth
         pos = s.skip(")", result)
         result += pos
         assert(pos != 0)
@@ -298,14 +305,14 @@ proc parseMethod(s: string, meth: var MethodDef, start: int): int =
     result += s.parseFieldDescriptor(meth, result)
 
 proc parseMethods(s: string, methods: var seq[MethodDef], start: int): int =
-    ##echo "parseMethods s: ", s.substr(start)
+    ##dbg: echo "parseMethods s: ", s.substr(start)
     result += start
     defer: result -= start
     while true:
         methods.add(MethodDef())
-        #echo "methods: ", methods
+        #dbg: echo "methods: ", methods
         #if methods.len >= 2:
-            #echo "methods[^2]: ", methods[^2]
+            #dbg: echo "methods[^2]: ", methods[^2]
         var pos = s.parseMethod(methods[^1], result)
         result += pos
         if pos == 0:
@@ -320,8 +327,8 @@ proc parseJavap*(s: string, def: var ClassDef, isParseMeths = true): int =
     def.methods = newSeq[MethodDef]()
 
     var pos = s.skipUntil('\l') + 1
-    ##echo "pos0: ", pos, " "
-    ##echo "parseJavap s: ", s
+    ##dbg: echo "pos0: ", pos, " "
+    ##dbg: echo "parseJavap s: ", s
     pos += s.parseAccessor(def.access, pos)
     pos += s.skipWhitespace(pos)
     pos += s.parseFinalFlag(def.final, pos)
@@ -341,7 +348,7 @@ proc parseJavap*(s: string, def: var ClassDef, isParseMeths = true): int =
     #pos += s.skipUntil('\l', pos) + 1
     if isParseMeths:
         pos += s.parseMethods(def.methods, pos)
-    ##echo "pos: ", pos
+    ##dbg: echo "pos: ", pos
 
 
 proc nodeToAsName(e: NimNode): string {.compileTime.} =
@@ -364,7 +371,7 @@ proc nodeToJClassDescr(e: NimNode): JClassDescr {.compileTime.} =
         if e.len > 3:
             let jclsDesc = nodeToJClassDescr(e[3])
             result.postReplaces.add jclsDesc.postReplaces
-            echo "asas:", nodeToJClassDescr(e[3]), "<-"
+            dbg: echo "asas:", nodeToJClassDescr(e[3]), "<-"
     elif e.kind == nnkCall and e[0].kind == nnkDotExpr:
         result.className &= nodeToJClassDescr(e[0]).className
         if e.len > 1:
@@ -374,14 +381,14 @@ proc nodeToJClassDescr(e: NimNode): JClassDescr {.compileTime.} =
     elif e.kind == nnkStmtList and e[0].kind == nnkCall and
             $e[0][0] == "postReplaces":
         for pRepls in e[0][1]:
-            echo $pRepls[0]
-            echo $pRepls[1]
+            dbg: echo $pRepls[0]
+            dbg: echo $pRepls[1]
             result.postReplaces.add (fromStr: $pRepls[0], toStr: $pRepls[1])
-        echo "postProcess:", result.postReplaces
-        echo treeRepr(e)
+        dbg: echo "postProcess:", result.postReplaces
+        dbg: echo treeRepr(e)
         #discard
     else:
-        ##echo treeRepr(e)
+        ##dbg: echo treeRepr(e)
         assert(false, "Cannot stringize node")
 
 
@@ -522,7 +529,7 @@ proc argDescr(arg: TypeName, inp = true, chckGeneric = true,
 proc classExists(jClsDefs: seq[string], name: string): bool =
     result = false
     if name.contains("GroupedIterator"):
-        echo "GroupedIterator:", name, "->", jClsDefs
+        dbg: echo "GroupedIterator:", name, "->", jClsDefs
     for def in jClsDefs:
         if def.contains("jclassDef " & name):
             return true
@@ -548,26 +555,26 @@ proc makejclassDef(cd: ClassDef, withAsCls = true,
             clNameOf &= "Object"
     else:
         var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true, aliases = aliases)
-        echo "cd.extends.genericArgs:", cd.extends.genericArgs
+        dbg: echo "cd.extends.genericArgs:", cd.extends.genericArgs
         #[for genArg in cd.extends.genericArgs:
-            echo "genArg.name:", genArg.name
+            dbg: echo "genArg.name:", genArg.name
             let clDef = jclassDefFromArg(jclsDefs, genArg.name, aliases = aliases)
             if clDef.len != 0:
                 jclsDefs.add clDef]#
         #if genericExt.len > 1 and genericExt[^2..^1] == "]]":
-            #echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
+            #dbg: echo "cd.extends.name: ", cd.extends.name, " :: ", genericExt
         let aN =
             if aliases.hasKey(cd.extends.name):
                 aliases[cd.extends.name]
             else:
                 cd.extends.name.split(".")[^1]
         clNameOf &= aN & genericExt
-    #echo "set jclassDef: ", cd.name.genericArgs
-    #echo "jclassDef " & clNameOf
+    #dbg: echo "set jclassDef: ", cd.name.genericArgs
+    #dbg: echo "jclassDef " & clNameOf
     result.className = className
     result.clNameOf = clNameOf
     #if className.strip() == "*":
-        #echo "className: ", cd
+        #dbg: echo "className: ", cd
     #result.add parseStmt("jclassDef " & clNameOf)
 
 proc replaceInnGener(s: string): string =
@@ -619,12 +626,12 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName,
         else:
             ""
     let javapCmd = &"javap -public -s {cp} " & tN.multiReplace( ("...", ""), ("$", ".") )
-    echo "2. javapCmd: ", javapCmd 
+    dbg: echo "2. javapCmd: ", javapCmd 
     let javapOutputTmp = staticExec( javapCmd )
     if javapOutputTmp.find("class not found") != -1:
         quit(javapOutputTmp, 1)
     let javapOutput = javapOutputTmp.replaceInnGener
-    echo javapOutput
+    dbg: echo javapOutput
     var cdT: ClassDef
     discard parseJavap(javapOutput, cdT, false)
     if asName != "":
@@ -661,10 +668,21 @@ proc addJclsDefs(jclsDefs: var seq[string], jClsses: seq[string], aliases: var T
             jclsDefs.add clDef
 
 
+proc saveJGen(genCode: string): string {.compileTime.} =
+    dbg: echo "genCode:", genCode
+    let prjPath = getProjectPath()
+    #discard staticExec("dbg: echo " & "genCode" & " > " & prjPath & """\bebe.nim""")
+    #result = staticExec("dir " & prjPath)
+    result = staticExec("dir")
+    #result = getProjectPath() & "<->" & currentSourcePath()# & staticExec("dir")
+    #result = "dbg: echo " & "genCode" & " > " & prjPath & """\bebe.nim"""
+              
+#const prjPath = getProjectPath()
+
 macro jnimport_all*(e: untyped): untyped =
-    echo "e:"
-    echo e.treeRepr
-    #echo e.kind
+    dbg: echo "e:"
+    dbg: echo e.treeRepr
+    #dbg: echo e.kind
     var cds = newSeq[ClassDef]()
     var clsAliases = newSeq[ClsAliasPair]()
     var clsAliasTbl = initTable[string, string]()
@@ -682,28 +700,28 @@ macro jnimport_all*(e: untyped): untyped =
         let jclassDescr = nodeToJClassDescr(eN)
         let className = jclassDescr.className
         let javapCmd = &"javap -public -s {cp} " & className.multiReplace( ("...", ""), ("$", ".") )
-        echo "javapCmd: ", javapCmd
+        dbg: echo "javapCmd: ", javapCmd
         let javapOutputTmp = staticExec(javapCmd)
         if javapOutputTmp.find("class not found") != -1:
             quit(javapOutputTmp, 1)
         let javapOutput = javapOutputTmp.replaceInnGener
-        echo "javapOutput: ", javapOutput
-        #echo cJavapOutput
+        dbg: echo "javapOutput: ", javapOutput
+        #dbg: echo cJavapOutput
         var cdT: ClassDef
         cdT.asName = nodeToAsName(eN)
         discard parseJavap(javapOutput, cdT)
         if jclassDescr.postReplaces.len != 0:
-            echo "jclassDescr.postReplaces:", jclassDescr.postReplaces
+            dbg: echo "jclassDescr.postReplaces:", jclassDescr.postReplaces
             cdT.postReplaces = jclassDescr.postReplaces
         if cdT.asName != "":
             #collectSetAliases(cdT, clsAliases)
             discard clsAliasTbl.hasKeyOrPut(className, cdT.asName)
-        #echo "cdT: ", cdT
+        #dbg: echo "cdT: ", cdT
         cds.add cdT
 
-    #echo "All AlliasesClasses: ", clsAliasTbl
-    ##echo "Class name: ", cd.name.name
-    ##echo "Class Extends: ", cd.extends.name
+    #dbg: echo "All AlliasesClasses: ", clsAliasTbl
+    ##dbg: echo "Class name: ", cd.name.name
+    ##dbg: echo "Class Extends: ", cd.extends.name
     #dumpAstGen:
         #jclassDef java.lang.Object of JVMObject
     var clNameOfs = newSeq[string]()
@@ -715,7 +733,7 @@ macro jnimport_all*(e: untyped): untyped =
             jclsDefs.add clDef
         var (className, clNameOf) = makejclassDef(cd, aliases = clsAliasTbl)
         #[for genArg in cd.extends.genericArgs:
-            echo "genArg.name:", genArg.name
+            dbg: echo "genArg.name:", genArg.name
             let clDef = jclassDefFromArg(jclsDefs, genArg.name, aliases = clsAliasTbl)
             if clDef.len != 0:
                 jclsDefs.add clDef]#
@@ -726,12 +744,12 @@ macro jnimport_all*(e: untyped): untyped =
             jclsDefs.add "  o.toStringRaw"
 
     #result.add quote do:
-        ##echo "boooooooooooooooooooo"
+        ##dbg: echo "boooooooooooooooooooo"
         #jclassDef java.lang.Object of JVMObject
         #`clName`
-    #echo "!!!!!!!!!!!!!!!!"
-    #echo "xxx:"
-    #echo xxx.repr
+    #dbg: echo "!!!!!!!!!!!!!!!!"
+    #dbg: echo "xxx:"
+    #dbg: echo xxx.repr
     var impls = newSeq[string]()
     for i,cd in cds:
         if cd.methods.len == 0: #maybe interface without methods
@@ -740,16 +758,16 @@ macro jnimport_all*(e: untyped): untyped =
         let className = cd.name.name
         #var implMeths = newTree(nnkStmtList)
         for i,m in cd.methods:
-            #echo "GenArgs:", m.genericArgs
-            #echo "GenArgs RetType:", m.retType.genericArgs
+            #dbg: echo "GenArgs:", m.genericArgs
+            #dbg: echo "GenArgs RetType:", m.retType.genericArgs
             var jClsFromGeneric: seq[string]
             genericArg2Java(m.genericArgs, jClsFromGeneric)
             genericArg2Java(m.retType.genericArgs, jClsFromGeneric)
             addJclsDefs(jclsDefs, jClsFromGeneric, aliases = clsAliasTbl)
             #if jClsFromGeneric.len > 0:
-                #echo "jClsFromGeneric:", jClsFromGeneric
-            #echo m.name, " --------------------", m.descriptor
-            #echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
+                #dbg: echo "jClsFromGeneric:", jClsFromGeneric
+            #dbg: echo m.name, " --------------------", m.descriptor
+            #dbg: echo m.retType.name & " genArgs: " & "->>" & genericArg2Nim m.retType.genericArgs
             let methGenType = genericArg2Nim(m.genericArgs, aliases = clsAliasTbl)
             let clDef = jclassDefFromArg(jclsDefs, m.retType, aliases = clsAliasTbl)
             if clDef.len != 0:
@@ -780,12 +798,12 @@ macro jnimport_all*(e: untyped): untyped =
                 args.add "a" & $j & $i & ": " & tArg
                 let clDef = jclassDefFromArg(jclsDefs, arg, aliases = clsAliasTbl)
                 if clDef.len != 0:
-                    #echo "arg= ", arg
+                    #dbg: echo "arg= ", arg
                     jclsDefs.add clDef
                 for genArgType in arg.genericArgs:
                     let clDefGen = jclassDefFromArg(jclsDefs, genArgType.name, aliases = clsAliasTbl)
                     if clDefGen.len != 0:
-                        #echo "arg= ", arg
+                        #dbg: echo "arg= ", arg
                         jclsDefs.add clDefGen
             let retArg = argDescr(m.retType, false, aliases = clsAliasTbl)
             var propPragms = newSeq[string]()
@@ -802,23 +820,38 @@ macro jnimport_all*(e: untyped): untyped =
             if isUndescr:
                 procDef = procDef.replace(" proc ", " #proc ")
             for r in cd.postReplaces:
-                #echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
-                #echo procDef
+                #dbg: echo "r.fromStr, r.toStr:", r.fromStr, "<->", r.toStr
+                #dbg: echo procDef
                 procDef = procDef.replaceWord(r.fromStr, r.toStr)
             impls.add procDef
-    echo "jclsDefs Expr:"
-    echo jclsDefs.join("\n")
+    dbg: echo "jclsDefs Expr:"
+    dbg: echo jclsDefs.join("\n")
     var clsDefs = jclsDefs.join("\n")
             #.replace("K,V,V", "K,V,V1")
     var clsImpls = impls.join("\n")
-            #.replace("K,V,V", "K,V,V1")
+    #[var jclsResult: string
+    jclsResult = clsDefs & "\n" & clsImpls
+    result.add(
+        quote do:
+            dbg: echo `jclsResult`
+    )]#
     #[for als in clsAliases:
         clsDefs = clsDefs.replace(als.shortName, als.alias)
-        echo "multiReplace0:", als.shortName, "->", als.alias
+        dbg: echo "multiReplace0:", als.shortName, "->", als.alias
         clsImpls = clsImpls.replace(als.shortName, als.alias)]#
     result.add parseStmt(clsDefs)
-    echo "clsImpls:"
-    echo clsImpls
+    dbg: echo "clsImpls:"
+    dbg: echo clsImpls
     result.add parseStmt(clsImpls)
-    echo "REPR:"
-    echo result.repr
+    dbg: echo "REPR:"
+    dbg: echo result.repr
+    jgen:
+        echo ">>>begin jgen for jnim"
+        echo result.repr
+        echo ">>>end jgen for jnim"
+    #var genCode: string
+    #genCode = result.repr
+    #dbg: echo genCode
+    #dbg: echo staticExec("dbg: echo " & genCode & " > xexp.nim")
+    #dbg: echo staticExec("dir")
+    #dbg: echo "bebe:", saveJGen(genCode)
