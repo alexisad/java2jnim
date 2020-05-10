@@ -555,7 +555,8 @@ proc makejclassDef(cd: ClassDef, withAsCls = true,
             clNameOf &= "Object"
     else:
         var genericExt = genericArg2Nim(cd.extends.genericArgs, isExtends = true, aliases = aliases)
-        dbg: echo "cd.extends.genericArgs:", cd.extends.genericArgs
+        dbg: echo "cd.name.name:", cd.name.name, " cd.extends:", cd.extends
+        dbg: echo "cd.extends.genericArgs:", cd.extends.genericArgs, "<-", genericExt
         #[for genArg in cd.extends.genericArgs:
             dbg: echo "genArg.name:", genArg.name
             let clDef = jclassDefFromArg(jclsDefs, genArg.name, aliases = aliases)
@@ -630,7 +631,7 @@ proc jclassDefFromArg(jclsDefs: seq[string], typeName: TypeName,
     let javapOutputTmp = staticExec( javapCmd )
     if javapOutputTmp.find("class not found") != -1:
         quit(javapOutputTmp, 1)
-    let javapOutput = javapOutputTmp.replaceInnGener
+    let javapOutput = javapOutputTmp.replaceInnGener.replace("BuilderType", "T")
     dbg: echo javapOutput
     var cdT: ClassDef
     discard parseJavap(javapOutput, cdT, false)
@@ -704,7 +705,7 @@ macro jnimport_all*(e: untyped): untyped =
         let javapOutputTmp = staticExec(javapCmd)
         if javapOutputTmp.find("class not found") != -1:
             quit(javapOutputTmp, 1)
-        let javapOutput = javapOutputTmp.replaceInnGener
+        let javapOutput = javapOutputTmp.replaceInnGener.replace("BuilderType", "T")
         dbg: echo "javapOutput: ", javapOutput
         #dbg: echo cJavapOutput
         var cdT: ClassDef
